@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod · фоновое воспроизведение с эквалайзером (iOS fix)</title>
+  <title>iPod · фоновое воспроизведение (iOS ready)</title>
   <style>
     * {
       margin: 0;
@@ -227,29 +227,6 @@
       cursor: pointer;
       width: 100%;
     }
-    .eq-sliders {
-      display: flex;
-      gap: 12px;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-    .eq-sliders div { flex: 1; text-align: center; }
-    .eq-sliders input { width: 100%; }
-    .preset-row {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin: 8px 0;
-    }
-    .preset-btn {
-      background: #2c2f3a;
-      border: none;
-      padding: 4px 12px;
-      border-radius: 30px;
-      color: white;
-      font-size: 0.7rem;
-      cursor: pointer;
-    }
     .volume-row {
       display: flex;
       align-items: center;
@@ -290,27 +267,14 @@
         <div id="trackDropdownList" class="track-list-drop"></div>
       </div>
     </div>
-    <div class="eq-section">
-      <div class="eq-sliders">
-        <div><label>Bass</label><input type="range" id="bassGain" min="-12" max="12" value="0" step="0.5"><div id="bassVal">0</div></div>
-        <div><label>Mid</label><input type="range" id="midGain" min="-12" max="12" value="0" step="0.5"><div id="midVal">0</div></div>
-        <div><label>Treble</label><input type="range" id="trebleGain" min="-12" max="12" value="0" step="0.5"><div id="trebleVal">0</div></div>
-      </div>
-      <div class="preset-row">
-        <button class="preset-btn" data-preset="flat">Flat</button>
-        <button class="preset-btn" data-preset="rock">Rock</button>
-        <button class="preset-btn" data-preset="pop">Pop</button>
-        <button class="preset-btn" data-preset="jazz">Jazz</button>
-      </div>
-      <div class="volume-row">
-        <span>🔊</span><input type="range" id="volumeCtl" min="0" max="1" step="0.01" value="0.8" class="volume-slider">
-      </div>
-      <div class="upload-row">
-        <button id="uploadMusicBtn" class="small-btn" style="background:#3a5668">📁 Загрузить музыку</button>
-        <button id="genManifestBtn" class="small-btn" style="background:#3a5668">📄 Создать manifest.json</button>
-      </div>
-      <input type="file" id="fileInput" multiple accept="audio/*,image/*" style="display:none">
+    <div class="volume-row">
+      <span>🔊</span><input type="range" id="volumeCtl" min="0" max="1" step="0.01" value="0.8" class="volume-slider">
     </div>
+    <div class="upload-row">
+      <button id="uploadMusicBtn" class="small-btn" style="background:#3a5668">📁 Загрузить музыку</button>
+      <button id="genManifestBtn" class="small-btn" style="background:#3a5668">📄 Создать manifest.json</button>
+    </div>
+    <input type="file" id="fileInput" multiple accept="audio/*,image/*" style="display:none">
   </div>
 
   <div class="artwork" id="artwork" style="background-image: none;"></div>
@@ -331,7 +295,7 @@
 
 <script>
   (function() {
-    // --- HTML5 Audio ---
+    // --- HTML5 Audio (без эквалайзера) ---
     let audio = new Audio();
     let isPlaying = false;
     let tracks = [];          // { id, name, url, coverUrl, duration }
@@ -341,21 +305,12 @@
     let currentTrackId = null;
     let isSwitching = false;
 
-    // --- Web Audio EQ ---
-    let ctx = null;
-    let bass = null, mid = null, treble = null, gain = null;
-    let sourceNode = null;
-    let eqConnected = false;
-    let needsReconnect = false;
-
     // DOM
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
     const progressBar = document.getElementById('progressBar'), fill = document.getElementById('progressFill');
     const curTimeSpan = document.getElementById('currentTimeLabel'), totalSpan = document.getElementById('totalDurationLabel');
     const trackNameSpan = document.getElementById('currentTrackName');
     const artworkDiv = document.getElementById('artwork');
-    const bassSl = document.getElementById('bassGain'), midSl = document.getElementById('midGain'), trebleSl = document.getElementById('trebleGain');
-    const bassVal = document.getElementById('bassVal'), midVal = document.getElementById('midVal'), trebleVal = document.getElementById('trebleVal');
     const volumeSlider = document.getElementById('volumeCtl');
     const tracksListBtn = document.getElementById('tracksListBtn'), settingsBtn = document.getElementById('settingsBtn');
     const tracksDropdown = document.getElementById('tracksDropdown');
@@ -366,80 +321,19 @@
     const uploadBtn = document.getElementById('uploadMusicBtn'), fileInput = document.getElementById('fileInput');
     const genManifestBtn = document.getElementById('genManifestBtn');
 
-    // --- helpers ---
-    function format(sec) { let m = Math.floor(sec/60), s = Math.floor(sec%60); return `${m}:${s<10?'0':''}${s}`; }
-
-    // --- EQ инициализация (без подключения) ---
-    function initEqContext() {
-      if (ctx && ctx.state !== 'closed') return;
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      gain = ctx.createGain();
-      bass = ctx.createBiquadFilter(); bass.type = "lowshelf"; bass.frequency.value = 200;
-      mid = ctx.createBiquadFilter(); mid.type = "peaking"; mid.frequency.value = 1000;
-      treble = ctx.createBiquadFilter(); treble.type = "highshelf"; treble.frequency.value = 5000;
-      bass.connect(mid); mid.connect(treble); treble.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.value = parseFloat(volumeSlider.value);
-    }
-
-    // Подключение EQ к аудио (вызывается при первом воспроизведении и после возвращения)
-    function connectEq() {
-      if (!ctx) initEqContext();
-      if (!audio.src) return;
-      if (sourceNode) {
-        try { sourceNode.disconnect(); } catch(e) {}
-        sourceNode = null;
-      }
-      try {
-        sourceNode = ctx.createMediaElementSource(audio);
-        sourceNode.connect(bass);
-        eqConnected = true;
-        if (ctx.state === 'suspended') ctx.resume().catch(console.warn);
-        updateEqFilters();
-        if (gain) gain.gain.value = parseFloat(volumeSlider.value);
-      } catch(e) { console.warn('EQ connect error:', e); }
-    }
-
-    // Отключение EQ (переводим audio напрямую в destination)
-    function disconnectEq() {
-      if (sourceNode) {
-        try { sourceNode.disconnect(); } catch(e) {}
-        sourceNode = null;
-      }
-      eqConnected = false;
-    }
-
-    function updateEqFilters() {
-      if (!bass) return;
-      bass.gain.value = parseFloat(bassSl.value);
-      mid.gain.value = parseFloat(midSl.value);
-      treble.gain.value = parseFloat(trebleSl.value);
-      bassVal.innerText = bass.gain.value + ' dB';
-      midVal.innerText = mid.gain.value + ' dB';
-      trebleVal.innerText = treble.gain.value + ' dB';
-      localStorage.setItem('eq_set', JSON.stringify({b: bassSl.value, m: midSl.value, t: trebleSl.value}));
-    }
-
-    function loadEq() {
-      let s = localStorage.getItem('eq_set');
-      if (s) { let v = JSON.parse(s); bassSl.value = v.b; midSl.value = v.m; trebleSl.value = v.t; }
-      updateEqFilters();
+    // helpers
+    function format(sec) { 
+      if (isNaN(sec)) return '0:00';
+      let m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
     }
 
     function setVolume(v) {
-      if (gain) gain.gain.value = v;
       audio.volume = v;
       localStorage.setItem('vol_set', v);
     }
 
-    function applyPreset(p) {
-      let m = { flat: {b:0,m:0,t:0}, rock: {b:5,m:-2,t:4}, pop: {b:3,m:1,t:3}, jazz: {b:4,m:2,t:1} };
-      let v = m[p] || m.flat;
-      bassSl.value = v.b; midSl.value = v.m; trebleSl.value = v.t;
-      updateEqFilters();
-    }
-
-    // --- Воспроизведение ---
+    // --- Управление воспроизведением ---
     async function playCurrent() {
       let pl = playlists.get(activePl);
       if (!pl || !pl.ids.length) return;
@@ -467,20 +361,12 @@
       }
       updateMediaSession(track);
 
-      // Подключаем EQ если ещё не подключён или нужен reconnect
-      if (!eqConnected && !needsReconnect) {
-        connectEq();
-      } else if (needsReconnect) {
-        connectEq();
-        needsReconnect = false;
-      }
-
       try {
         await audio.play();
         isPlaying = true;
         playBtn.innerText = '⏸';
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-      } catch(e) { console.warn(e); }
+      } catch(e) { console.warn('play error:', e); }
       isSwitching = false;
       updateAllTrackHighlights();
     }
@@ -528,7 +414,7 @@
       if (audio.duration) audio.currentTime = audio.duration * percent;
     }
 
-    // --- Media Session ---
+    // --- Media Session API ---
     function updateMediaSession(track) {
       if (!('mediaSession' in navigator)) return;
       const artwork = track.coverUrl ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/jpeg' }] : [];
@@ -549,36 +435,26 @@
       navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
     }
 
-    // --- Фоновое воспроизведение: отключаем EQ при сворачивании, подключаем обратно при возврате ---
+    // --- Фоновое воспроизведение: просто сохраняем состояние ---
     let wasPlayingBeforeHidden = false;
     function handleVisibilityChange() {
       if (document.visibilityState === 'hidden') {
         wasPlayingBeforeHidden = isPlaying;
-        if (isPlaying && eqConnected) {
-          // Отключаем эквалайзер, чтобы звук не пропадал на заблокированном экране
-          disconnectEq();
-          needsReconnect = true;
-        }
       } else if (document.visibilityState === 'visible') {
-        if (wasPlayingBeforeHidden && needsReconnect) {
-          // Возвращаем эквалайзер, сохраняя позицию
-          if (audio.src && !audio.paused) {
-            let currentTime = audio.currentTime;
-            connectEq();
-            audio.currentTime = currentTime;
-            if (ctx && ctx.state === 'suspended') ctx.resume().catch(console.warn);
-          } else {
-            connectEq();
-          }
-          needsReconnect = false;
+        if (wasPlayingBeforeHidden && !isPlaying) {
+          audio.play().catch(console.warn);
+          isPlaying = true;
+          playBtn.innerText = '⏸';
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
         }
         wasPlayingBeforeHidden = false;
       }
     }
 
     // --- Прогресс ---
+    let progressAnimation;
     function startProgress() {
-      let anim;
+      if (progressAnimation) cancelAnimationFrame(progressAnimation);
       function update() {
         if (audio.duration && !isNaN(audio.duration)) {
           let percent = (audio.currentTime / audio.duration) * 100;
@@ -593,14 +469,13 @@
             }
           }
         }
-        anim = requestAnimationFrame(update);
+        progressAnimation = requestAnimationFrame(update);
       }
       update();
-      return () => cancelAnimationFrame(anim);
     }
-    let stopProgress = startProgress();
+    startProgress();
 
-    // --- Обработчики аудио ---
+    // --- События аудио ---
     function bindAudioEvents() {
       audio.addEventListener('ended', () => {
         if (!isSwitching) nextTrack();
@@ -788,17 +663,7 @@
       } catch(e) { alert('Ошибка: ' + e.message); }
     }
 
-    // --- Инициализация ---
-    function init() {
-      loadEq();
-      let sv = localStorage.getItem('vol_set');
-      if (sv) { volumeSlider.value = sv; setVolume(+sv); } else setVolume(volumeSlider.value);
-      bindEvents();
-      bindAudioEvents();
-      setupMediaSessionHandlers();
-      initEqContext();
-    }
-
+    // --- Инициализация и события ---
     function bindEvents() {
       playBtn.onclick = togglePlay;
       prevBtn.onclick = prevTrack;
@@ -824,10 +689,6 @@
         if (!tracksListBtn.contains(e.target) && !tracksDropdown.contains(e.target)) tracksDropdown.classList.remove('show');
         if (!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) settingsDropdown.classList.remove('show');
       });
-      bassSl.oninput = updateEqFilters;
-      midSl.oninput = updateEqFilters;
-      trebleSl.oninput = updateEqFilters;
-      document.querySelectorAll('.preset-btn').forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
       newPlBtn.onclick = () => { let nm = prompt('Название плейлиста'); if (nm) playlists.set('pl_' + Date.now(), { name: nm, ids: [] }); renderPlaylistsUI(); renderSimpleTracksMenu(); };
       uploadBtn.onclick = () => fileInput.click();
       fileInput.onchange = (e) => { if (e.target.files.length) handleUserFiles(Array.from(e.target.files)); fileInput.value = ''; };
@@ -835,16 +696,14 @@
       window.addEventListener('dragover', e => e.preventDefault());
       window.addEventListener('drop', async e => { e.preventDefault(); let fs = Array.from(e.dataTransfer.files); await handleUserFiles(fs); });
       document.addEventListener('visibilitychange', handleVisibilityChange);
-      // Подключаем EQ при первом воспроизведении (через одноразовый клик)
-      document.body.addEventListener('click', () => {
-        if (!eqConnected && audio.src) {
-          connectEq();
-        }
-      }, { once: true });
     }
 
     window.addEventListener('load', async () => {
-      init();
+      let sv = localStorage.getItem('vol_set');
+      if (sv) { volumeSlider.value = sv; setVolume(+sv); } else setVolume(volumeSlider.value);
+      bindEvents();
+      bindAudioEvents();
+      setupMediaSessionHandlers();
       await loadMusicViaManifest('music/manifest.json');
       if (!tracks.length) await loadMusicViaManifest('manifest.json');
       renderPlaylistsUI();
