@@ -2,289 +2,70 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>iPod · автономный плеер + генератор manifest.json</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>iPod · минималистичный плеер</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    body {
-      background: radial-gradient(circle at 20% 30%, #1a1c20, #0b0d10);
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-family: 'Inter', system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', sans-serif;
-      padding: 1.5rem;
-    }
-
-    .pod {
-      max-width: 1400px;
-      width: 100%;
-      background: rgba(25, 28, 32, 0.75);
-      backdrop-filter: blur(30px);
-      border-radius: 48px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      padding: 1.8rem;
-      transition: all 0.2s ease;
-    }
-
-    .dashboard {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 1.8rem;
-    }
-
-    .sidebar {
-      background: rgba(0, 0, 0, 0.35);
-      border-radius: 32px;
-      padding: 1.3rem;
-      backdrop-filter: blur(4px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .section-title {
-      font-size: 0.75rem;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      font-weight: 500;
-      color: #9aa3b0;
-      margin-bottom: 0.8rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .playlist-list {
-      margin-bottom: 2rem;
-    }
-
-    .playlist-buttons {
-      list-style: none;
-      margin-bottom: 1rem;
-    }
-
-    .playlist-item {
-      background: rgba(255, 255, 255, 0.04);
-      border-radius: 18px;
-      padding: 0.6rem 0.9rem;
-      margin-bottom: 0.5rem;
-      display: flex;
-      justify-content: space-between;
-      cursor: pointer;
-      transition: 0.1s linear;
-      font-weight: 500;
-      font-size: 0.85rem;
-      color: #eef2ff;
-    }
-
-    .playlist-item.active {
-      background: #2c6e9ecc;
-      box-shadow: 0 4px 10px rgba(0, 100, 200, 0.2);
-    }
-
-    .btn-icon-sm {
-      background: none;
-      border: none;
-      color: #bac0cc;
-      font-size: 1rem;
-      cursor: pointer;
-      padding: 0 4px;
-    }
-
-    .track-list {
-      max-height: 320px;
-      overflow-y: auto;
-      margin-top: 0.5rem;
-    }
-
-    .track-item {
-      background: rgba(20, 22, 27, 0.7);
-      border-radius: 14px;
-      padding: 0.5rem 0.8rem;
-      margin-bottom: 0.5rem;
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.8rem;
-      color: #e0e4ec;
-      cursor: pointer;
-    }
-
-    .track-item.now-playing {
-      background: #1f5c8e;
-      border-left: 4px solid #6bc5ff;
-    }
-
-    .main-player {
-      display: flex;
-      flex-direction: column;
-      gap: 1.2rem;
-    }
-
-    canvas {
-      width: 100%;
-      height: 140px;
-      background: #01010133;
-      border-radius: 24px;
-      display: block;
-    }
-
-    .track-info {
-      text-align: center;
-    }
-    .track-name {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: white;
-    }
-    .track-duration {
-      font-size: 0.75rem;
-      color: #9aa3b0;
-    }
-
-    .equalizer {
-      background: rgba(20, 22, 30, 0.6);
-      border-radius: 28px;
-      padding: 1.2rem;
-    }
-    .eq-controls {
-      display: flex;
-      gap: 1rem;
-      justify-content: space-between;
-    }
-    .eq-band {
-      flex: 1;
-      text-align: center;
-    }
-    .eq-band label {
-      font-size: 0.7rem;
-      color: #b9c2d4;
-    }
-    input[type="range"] {
-      width: 100%;
-      background: #2e3440;
-      height: 3px;
-      border-radius: 10px;
-    }
-    .presets {
-      display: flex;
-      gap: 0.5rem;
-      margin-top: 1rem;
-      justify-content: center;
-    }
-    .preset-btn {
-      background: #1e2532;
-      border: none;
-      color: #ddd;
-      padding: 0.3rem 0.8rem;
-      border-radius: 40px;
-      font-size: 0.7rem;
-      cursor: pointer;
-    }
-    .playback-controls {
-      display: flex;
-      justify-content: center;
-      gap: 1.5rem;
-    }
-    .ctrl-btn {
-      background: rgba(255,255,255,0.03);
-      border: none;
-      font-size: 1.8rem;
-      cursor: pointer;
-      color: #eef2ff;
-      width: 52px;
-      height: 52px;
-      border-radius: 60px;
-    }
-    .progress-area {
-      display: flex;
-      align-items: center;
-      gap: 0.8rem;
-    }
-    .progress-bar {
-      flex: 1;
-      height: 4px;
-      background: #2e3a48;
-      border-radius: 10px;
-      cursor: pointer;
-    }
-    .progress-fill {
-      width: 0%;
-      height: 100%;
-      background: #6bc5ff;
-      border-radius: 10px;
-    }
-    .volume-slider {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      justify-content: center;
-    }
-    .upload-btn, .gen-manifest-btn {
-      background: #2c3e50;
-      width: 100%;
-      padding: 8px;
-      border-radius: 44px;
-      text-align: center;
-      font-size: 0.8rem;
-      font-weight: 500;
-      cursor: pointer;
-      margin-bottom: 6px;
-      border: 1px solid #3b4e64;
-    }
-    .gen-manifest-btn {
-      background: #2a4b6e;
-    }
-    @media (max-width: 760px) {
-      .dashboard { grid-template-columns: 1fr; }
-    }
+    *{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;background:radial-gradient(circle at 20% 30%,#1a1c20,#0b0d10);font-family:system-ui,'Segoe UI',sans-serif}
+    body{display:flex;align-items:center;justify-content:center;padding:12px}
+    .pod{width:100%;height:100%;background:rgba(25,28,32,.75);backdrop-filter:blur(30px);border-radius:36px;border:1px solid rgba(255,255,255,.15);padding:1.2rem;overflow-y:auto;display:flex;flex-direction:column}
+    .dashboard{display:grid;grid-template-columns:300px 1fr;gap:1.5rem;flex:1;min-height:0}
+    .sidebar{background:rgba(0,0,0,.35);border-radius:28px;padding:1.2rem;backdrop-filter:blur(4px);display:flex;flex-direction:column;overflow:hidden}
+    .section-title{font-size:.75rem;letter-spacing:1px;text-transform:uppercase;color:#9aa3b0;margin-bottom:.8rem;display:flex;justify-content:space-between}
+    .playlist-item,.track-item{background:rgba(255,255,255,.04);border-radius:18px;padding:.6rem .9rem;margin-bottom:.5rem;display:flex;justify-content:space-between;cursor:pointer;color:#eef2ff}
+    .playlist-item.active{background:#2c6e9ecc}
+    .track-item{background:rgba(20,22,27,.7);font-size:.8rem}
+    .track-item.now-playing{background:#1f5c8e;border-left:4px solid #6bc5ff}
+    .track-list{flex:1;overflow-y:auto;margin-top:.8rem}
+    .main-player{display:flex;flex-direction:column;gap:1.2rem}
+    canvas{width:100%;height:130px;background:#01010133;border-radius:24px;display:block}
+    .track-name{font-size:1.25rem;font-weight:600;color:white;text-align:center}
+    .equalizer{background:rgba(20,22,30,.6);border-radius:28px;padding:1rem}
+    .eq-controls{display:flex;gap:1rem}
+    .eq-band{flex:1;text-align:center}
+    input[type=range]{width:100%;background:#2e3440;height:3px;border-radius:10px;-webkit-appearance:none}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#6bc5ff;cursor:pointer}
+    .presets{display:flex;gap:.5rem;margin-top:1rem;justify-content:center;flex-wrap:wrap}
+    .preset-btn{background:#1e2532;border:none;color:#ddd;padding:.3rem .8rem;border-radius:40px;cursor:pointer}
+    .playback-controls{display:flex;justify-content:center;gap:1.5rem}
+    .ctrl-btn{background:rgba(255,255,255,.03);border:none;font-size:1.8rem;cursor:pointer;color:#eef2ff;width:56px;height:56px;border-radius:60px}
+    .progress-area{display:flex;align-items:center;gap:.8rem;font-size:.8rem;color:#adb7c6}
+    .progress-bar{flex:1;height:4px;background:#2e3a48;border-radius:10px;cursor:pointer}
+    .progress-fill{width:0%;height:100%;background:#6bc5ff;border-radius:10px}
+    .volume-slider{display:flex;align-items:center;gap:8px;justify-content:center}
+    .upload-btn,.gen-manifest-btn{background:#2c3e50;padding:8px;border-radius:44px;text-align:center;font-size:.8rem;font-weight:500;cursor:pointer;margin-bottom:6px}
+    .gen-manifest-btn{background:#2a4b6e}
+    @media (max-width:760px){body{padding:8px}.pod{padding:.8rem;border-radius:24px}.dashboard{grid-template-columns:1fr}.sidebar{max-height:45vh}.ctrl-btn{width:64px;height:64px;font-size:2.2rem}}
+    @media (min-width:1400px){body{padding:20px}.pod{max-width:1600px;margin:0 auto;height:auto;min-height:90vh}}
+    button{background:none;font-family:inherit}
   </style>
 </head>
 <body>
 <div class="pod">
   <div class="dashboard">
     <div class="sidebar">
-      <div class="library-upload">
-        <div class="section-title">📁 Медиатека</div>
-        <div class="upload-btn" id="uploadBtn">⬆ Загрузить музыку (MP3/WAV/OGG)</div>
-        <div class="gen-manifest-btn" id="genManifestBtn">📄 Создать manifest.json из папки /music</div>
-        <input type="file" id="fileInput" multiple accept="audio/*" style="display:none" />
-        <div style="font-size:0.7rem; text-align:center; margin-top:6px;">drag&drop сюда</div>
-      </div>
-      <div class="playlist-list">
-        <div class="section-title">🎵 ПЛЕЙЛИСТЫ <button id="newPlaylistBtn" class="btn-icon-sm">+ новый</button></div>
-        <ul id="playlistContainer" class="playlist-buttons"></ul>
-      </div>
+      <div class="upload-btn" id="uploadBtn">⬆ Загрузить музыку</div>
+      <div class="gen-manifest-btn" id="genManifestBtn">📄 Создать manifest.json из папки /music</div>
+      <input type="file" id="fileInput" multiple accept="audio/*" style="display:none">
+      <div class="section-title">🎵 ПЛЕЙЛИСТЫ <button id="newPlaylistBtn" class="btn-icon-sm" style="background:none;border:none;color:#bac0cc">+ новый</button></div>
+      <ul id="playlistContainer" style="list-style:none"></ul>
       <div class="section-title">🎧 Треки</div>
       <div id="trackListContainer" class="track-list"></div>
     </div>
-
     <div class="main-player">
-      <canvas id="audioCanvas" width="800" height="140" style="width:100%; height:140px"></canvas>
-      <div class="track-info">
-        <div class="track-name" id="currentTrackName">—</div>
-        <div class="track-duration" id="timeDisplay">0:00 / 0:00</div>
-      </div>
+      <canvas id="audioCanvas" width="800" height="130"></canvas>
+      <div class="track-name" id="currentTrackName">—</div>
       <div class="playback-controls">
-        <button id="prevBtn" class="ctrl-btn">⏮</button>
-        <button id="playPauseBtn" class="ctrl-btn">▶</button>
-        <button id="nextBtn" class="ctrl-btn">⏭</button>
+        <button class="ctrl-btn" id="prevBtn">⏮</button>
+        <button class="ctrl-btn" id="playPauseBtn">▶</button>
+        <button class="ctrl-btn" id="nextBtn">⏭</button>
       </div>
       <div class="progress-area">
         <span id="currentTimeLabel">0:00</span>
-        <div id="progressBar" class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+        <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
         <span id="totalDurationLabel">0:00</span>
       </div>
-      <div class="volume-slider">
-        <span>🔊</span>
-        <input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.8">
-      </div>
+      <div class="volume-slider"><span>🔊</span><input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.8"></div>
       <div class="equalizer">
         <div class="eq-controls">
           <div class="eq-band"><label>BASS</label><input type="range" id="bassGain" min="-12" max="12" value="0" step="0.5"><div id="bassVal">0 dB</div></div>
@@ -302,367 +83,88 @@
     </div>
   </div>
 </div>
-
 <script>
-  // ------------------- АУДИО КОНТЕКСТ & ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ -------------------
-  let audioCtx = null;
-  let isPlaying = false;
-  let currentSource = null;
-  let currentBuffer = null;
-  let currentTrackId = null;
-  let trackOffset = 0, startTime = 0, pauseOffset = 0;
-  let tracksLibrary = [];
-  let nextTrackId = 1;
-  let playlists = new Map();
-  let activePlaylistId = "default";
-  let currentTrackIndexInPlaylist = 0;
-  let bassFilter, midFilter, trebleFilter, volumeGain, analyserNode;
-  let animationFrame = null;
-
-  // DOM
-  const playPauseBtn = document.getElementById('playPauseBtn');
-  const prevBtn = document.getElementById('prevBtn');
-  const nextBtn = document.getElementById('nextBtn');
-  const progressBar = document.getElementById('progressBar');
-  const progressFill = document.getElementById('progressFill');
-  const currentTimeLabel = document.getElementById('currentTimeLabel');
-  const totalDurationLabel = document.getElementById('totalDurationLabel');
-  const currentTrackNameSpan = document.getElementById('currentTrackName');
-  const volumeSlider = document.getElementById('volumeControl');
-  const bassSlider = document.getElementById('bassGain'), midSlider = document.getElementById('midGain'), trebleSlider = document.getElementById('trebleGain');
-  const bassVal = document.getElementById('bassVal'), midVal = document.getElementById('midVal'), trebleVal = document.getElementById('trebleVal');
-  const fileInput = document.getElementById('fileInput');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const playlistContainer = document.getElementById('playlistContainer');
-  const trackListContainer = document.getElementById('trackListContainer');
-  const newPlaylistBtn = document.getElementById('newPlaylistBtn');
-  const genManifestBtn = document.getElementById('genManifestBtn');
-
-  // ------------------- ИНИЦИАЛИЗАЦИЯ АУДИО -------------------
-  function initAudioContext() {
-    if (audioCtx && audioCtx.state !== 'closed') return audioCtx;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    volumeGain = audioCtx.createGain();
-    analyserNode = audioCtx.createAnalyser();
-    analyserNode.fftSize = 256;
-    volumeGain.gain.value = parseFloat(volumeSlider.value);
-
-    bassFilter = audioCtx.createBiquadFilter(); bassFilter.type = "lowshelf"; bassFilter.frequency.value = 200;
-    midFilter = audioCtx.createBiquadFilter(); midFilter.type = "peaking"; midFilter.frequency.value = 1000;
-    trebleFilter = audioCtx.createBiquadFilter(); trebleFilter.type = "highshelf"; trebleFilter.frequency.value = 5000;
-
-    bassFilter.connect(midFilter);
-    midFilter.connect(trebleFilter);
-    trebleFilter.connect(volumeGain);
-    volumeGain.connect(analyserNode);
-    analyserNode.connect(audioCtx.destination);
-    return audioCtx;
-  }
-
-  function updateEq() {
-    if (!bassFilter) return;
-    bassFilter.gain.value = parseFloat(bassSlider.value);
-    midFilter.gain.value = parseFloat(midSlider.value);
-    trebleFilter.gain.value = parseFloat(trebleSlider.value);
-    bassVal.innerText = bassFilter.gain.value + " dB";
-    midVal.innerText = midFilter.gain.value + " dB";
-    trebleVal.innerText = trebleFilter.gain.value + " dB";
-    localStorage.setItem("ipod_eq", JSON.stringify({bass: bassSlider.value, mid: midSlider.value, treble: trebleSlider.value}));
-  }
-
-  function loadEq() {
-    const saved = localStorage.getItem("ipod_eq");
-    if (saved) { const s = JSON.parse(saved); bassSlider.value = s.bass; midSlider.value = s.mid; trebleSlider.value = s.treble; }
-    updateEq();
-  }
-
-  function setVolume(v) {
-    if (volumeGain) volumeGain.gain.value = v;
-    localStorage.setItem("ipod_volume", v);
-  }
-
-  function applyPreset(p) {
-    const map = { flat:{bass:0,mid:0,treble:0}, rock:{bass:5,mid:-2,treble:4}, pop:{bass:3,mid:1,treble:3}, jazz:{bass:4,mid:2,treble:1}, classical:{bass:2,mid:0,treble:2} };
-    const v = map[p] || map.flat;
-    bassSlider.value = v.bass; midSlider.value = v.mid; trebleSlider.value = v.treble; updateEq();
-  }
-
-  // ------------------- ВОСПРОИЗВЕДЕНИЕ -------------------
-  async function playCurrentTrack() {
-    if (!audioCtx) initAudioContext();
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    const playlist = playlists.get(activePlaylistId);
-    if (!playlist || !playlist.trackIds.length) return;
-    const track = tracksLibrary.find(t => t.id === playlist.trackIds[currentTrackIndexInPlaylist]);
-    if (!track || !track.buffer) return;
-    if (currentSource) try { currentSource.stop(); } catch(e) {}
-    currentBuffer = track.buffer;
-    currentTrackId = track.id;
-    currentTrackNameSpan.innerText = track.name;
-    totalDurationLabel.innerText = formatTime(currentBuffer.duration);
-    updateTrackListActive();
-    currentSource = audioCtx.createBufferSource();
-    currentSource.buffer = currentBuffer;
-    currentSource.connect(bassFilter);
-    currentSource.onended = () => { if (isPlaying) nextTrack(); };
-    const startPos = pauseOffset || 0;
-    currentSource.start(0, startPos);
-    startTime = audioCtx.currentTime - startPos;
-    isPlaying = true;
-    playPauseBtn.innerText = '⏸';
-    pauseOffset = 0;
-    startProgressUpdater();
-  }
-
-  function pauseTrack() {
-    if (!isPlaying || !currentSource) return;
-    const elapsed = audioCtx.currentTime - startTime;
-    pauseOffset = Math.max(0, elapsed);
-    currentSource.stop(); currentSource = null;
-    isPlaying = false; playPauseBtn.innerText = '▶';
-  }
-
-  function resumeTrack() {
-    if (isPlaying) return;
-    if (!currentBuffer) return;
-    playCurrentTrack();
-  }
-
-  function togglePlayPause() {
-    if (!audioCtx) initAudioContext();
-    if (isPlaying) pauseTrack();
-    else { if (currentBuffer === null && tracksLibrary.length) { const pl = playlists.get(activePlaylistId); if(pl && pl.trackIds.length) { currentTrackIndexInPlaylist=0; pauseOffset=0; playCurrentTrack(); } } else resumeTrack(); }
-  }
-
-  function nextTrack() { changeTrack(1); }
-  function prevTrack() { changeTrack(-1); }
-  function changeTrack(dir) {
-    const pl = playlists.get(activePlaylistId);
-    if (!pl || !pl.trackIds.length) return;
-    if (currentSource) try { currentSource.stop(); } catch(e) {}
-    isPlaying = false; pauseOffset = 0;
-    let newIdx = currentTrackIndexInPlaylist + dir;
-    if (newIdx < 0) newIdx = pl.trackIds.length - 1;
-    if (newIdx >= pl.trackIds.length) newIdx = 0;
-    currentTrackIndexInPlaylist = newIdx;
-    playCurrentTrack();
-  }
-
-  function seekTo(percent) {
-    if (!currentBuffer) return;
-    const newPos = currentBuffer.duration * percent;
-    const wasPlaying = isPlaying;
-    if (isPlaying && currentSource) { pauseTrack(); pauseOffset = newPos; if (wasPlaying) playCurrentTrack(); }
-    else { pauseOffset = newPos; }
-  }
-
-  function formatTime(s) { if (isNaN(s)) return "0:00"; const m = Math.floor(s/60), sec = Math.floor(s%60); return `${m}:${sec<10?'0':''}${sec}`; }
-
-  function startProgressUpdater() {
-    if (animationFrame) cancelAnimationFrame(animationFrame);
-    function update() {
-      if (currentBuffer) {
-        let cur = pauseOffset;
-        if (isPlaying && currentSource && startTime) cur = audioCtx.currentTime - startTime;
-        const percent = (cur / currentBuffer.duration) * 100;
-        progressFill.style.width = `${Math.min(100,percent)}%`;
-        currentTimeLabel.innerText = formatTime(cur);
+  (function(){
+    let ctx=null, playing=false, src=null, buffer=null, trackId=null, start=0, offset=0;
+    let tracks=[], nextId=1, playlists=new Map([['default',{name:'Все треки',ids:[]}]]), activePl='default', idx=0;
+    let bass,mid,treble,gain,analyser;
+    let anim;
+    // DOM элементы
+    const playPause=id('playPauseBtn'), prevBtn=id('prevBtn'), nextBtn=id('nextBtn'), progressBar=id('progressBar'), fill=id('progressFill');
+    const curTime=id('currentTimeLabel'), totalTime=id('totalDurationLabel'), trackName=id('currentTrackName');
+    const volSlider=id('volumeControl'), bassSl=id('bassGain'), midSl=id('midGain'), trebleSl=id('trebleGain');
+    const bassVal=id('bassVal'),midVal=id('midVal'),trebleVal=id('trebleVal');
+    const fileInput=id('fileInput'),uploadBtn=id('uploadBtn'),playlistCont=id('playlistContainer'),trackCont=id('trackListContainer');
+    const newPlBtn=id('newPlaylistBtn'),genMan=id('genManifestBtn');
+    function id(s){return document.getElementById(s);}
+    function format(t){let m=Math.floor(t/60),s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s;}
+    function initAudio(){if(ctx&&ctx.state!=='closed')return ctx;ctx=new (window.AudioContext||window.webkitAudioContext)();gain=ctx.createGain();analyser=ctx.createAnalyser();analyser.fftSize=256;gain.gain.value=+volSlider.value;
+      bass=ctx.createBiquadFilter();bass.type="lowshelf";bass.frequency.value=200;
+      mid=ctx.createBiquadFilter();mid.type="peaking";mid.frequency.value=1000;
+      treble=ctx.createBiquadFilter();treble.type="highshelf";treble.frequency.value=5000;
+      bass.connect(mid);mid.connect(treble);treble.connect(gain);gain.connect(analyser);analyser.connect(ctx.destination);
+      return ctx;}
+    function updateEQ(){if(!bass)return;bass.gain.value=+bassSl.value;mid.gain.value=+midSl.value;treble.gain.value=+trebleSl.value;bassVal.innerText=bass.gain.value+' dB';midVal.innerText=mid.gain.value+' dB';trebleVal.innerText=treble.gain.value+' dB';localStorage.setItem('eq',JSON.stringify({bass:bassSl.value,mid:midSl.value,treble:trebleSl.value}));}
+    function loadEQ(){let s=localStorage.getItem('eq');if(s){let v=JSON.parse(s);bassSl.value=v.bass;midSl.value=v.mid;trebleSl.value=v.treble;}updateEQ();}
+    function setVolume(v){if(gain)gain.gain.value=v;localStorage.setItem('vol',v);}
+    function applyPreset(p){let m={flat:{b:0,m:0,t:0},rock:{b:5,m:-2,t:4},pop:{b:3,m:1,t:3},jazz:{b:4,m:2,t:1},classical:{b:2,m:0,t:2}};let v=m[p]||m.flat;bassSl.value=v.b;midSl.value=v.m;trebleSl.value=v.t;updateEQ();}
+    async function play(){
+      if(!ctx)initAudio();if(ctx.state==='suspended')await ctx.resume();
+      let pl=playlists.get(activePl);if(!pl||!pl.ids.length)return;
+      let tr=tracks.find(t=>t.id===pl.ids[idx]);if(!tr||!tr.buf)return;
+      if(src)try{src.stop()}catch(e){}
+      buffer=tr.buf;trackId=tr.id;trackName.innerText=tr.name;totalTime.innerText=format(buffer.duration);updateActive();
+      src=ctx.createBufferSource();src.buffer=buffer;src.connect(bass);src.onended=()=>{if(playing)next()};
+      src.start(0,offset);start=ctx.currentTime-offset;playing=true;playPause.innerText='⏸';offset=0;startProgress();
+    }
+    function pause(){if(!playing||!src)return;offset=Math.max(0,ctx.currentTime-start);src.stop();src=null;playing=false;playPause.innerText='▶';}
+    function toggle(){if(!ctx)initAudio();if(playing)pause();else{if(!buffer&&tracks.length){let pl=playlists.get(activePl);if(pl&&pl.ids.length){idx=0;offset=0;play();}}else if(buffer)play();}}
+    function next(){change(1);} function prev(){change(-1);}
+    function change(d){let pl=playlists.get(activePl);if(!pl||!pl.ids.length)return;if(src)try{src.stop()}catch(e){};playing=false;offset=0;let ni=idx+d;if(ni<0)ni=pl.ids.length-1;if(ni>=pl.ids.length)ni=0;idx=ni;play();}
+    function seek(per){if(!buffer)return;let np=buffer.duration*per;let was=playing;if(playing&&src){pause();offset=np;if(was)play();}else offset=np;}
+    function startProgress(){if(anim)cancelAnimationFrame(anim);function upd(){if(buffer){let cur=offset;if(playing&&src&&start)cur=ctx.currentTime-start;let per=cur/buffer.duration*100;fill.style.width=Math.min(100,per)+'%';curTime.innerText=format(cur);}anim=requestAnimationFrame(upd);}upd();}
+    function renderPl(){
+      playlistCont.innerHTML='';
+      for(let[id,pl] of playlists){
+        let li=document.createElement('li');li.className='playlist-item'+(activePl===id?' active':'');
+        li.innerHTML=`<span>📀 ${pl.name}</span><div><button class="btn-icon-sm" data-del="${id}">🗑</button></div>`;
+        li.addEventListener('click',(e)=>{if(e.target.classList.contains('btn-icon-sm'))return;activePl=id;idx=0;offset=0;if(src)try{src.stop()}catch(e){}playing=false;playPause.innerText='▶';renderPl();renderTracks();let p=playlists.get(id);if(p&&p.ids.length){let ft=tracks.find(t=>t.id===p.ids[0]);if(ft){buffer=ft.buf;trackId=ft.id;trackName.innerText=ft.name;totalTime.innerText=format(ft.duration);offset=0;}else{buffer=null;trackName.innerText='-';}}else{buffer=null;trackName.innerText='-';}updateActive();});
+        let del=li.querySelector('[data-del]');if(del&&id!=='default')del.addEventListener('click',(e)=>{e.stopPropagation();playlists.delete(id);if(activePl===id)activePl='default';renderPl();renderTracks();});
+        playlistCont.appendChild(li);
       }
-      animationFrame = requestAnimationFrame(update);
     }
-    update();
-  }
-
-  // ------------------- ПЛЕЙЛИСТЫ И ТРЕКИ -------------------
-  function renderPlaylistsUI() {
-    playlistContainer.innerHTML = '';
-    for (let [id, pl] of playlists.entries()) {
-      const li = document.createElement('li'); li.className = 'playlist-item' + (activePlaylistId===id?' active':'');
-      li.innerHTML = `<span>📀 ${pl.name}</span><div><button class="btn-icon-sm" data-del="${id}">🗑</button></div>`;
-      li.addEventListener('click', (e) => { if(e.target.classList.contains('btn-icon-sm')) return; activePlaylistId=id; currentTrackIndexInPlaylist=0; pauseOffset=0; if(currentSource){try{currentSource.stop();}catch(e){}} isPlaying=false; playPauseBtn.innerText='▶'; renderPlaylistsUI(); renderTracksForActivePlaylist(); const pl2=playlists.get(id); if(pl2 && pl2.trackIds.length){ const ft=tracksLibrary.find(t=>t.id===pl2.trackIds[0]); if(ft){ currentBuffer=ft.buffer; currentTrackId=ft.id; currentTrackNameSpan.innerText=ft.name; totalDurationLabel.innerText=formatTime(ft.duration);} else {currentBuffer=null; currentTrackNameSpan.innerText="-";}} else {currentBuffer=null; currentTrackNameSpan.innerText="-";} updateTrackListActive(); });
-      const delBtn = li.querySelector('[data-del]'); if(delBtn && id!=='default') delBtn.addEventListener('click', (e)=>{ e.stopPropagation(); playlists.delete(id); if(activePlaylistId===id) activePlaylistId='default'; renderPlaylistsUI(); renderTracksForActivePlaylist(); });
-      playlistContainer.appendChild(li);
+    function renderTracks(){
+      let pl=playlists.get(activePl);if(!pl)return;trackCont.innerHTML='';
+      pl.ids.forEach((tid,i)=>{let t=tracks.find(tr=>tr.id===tid);if(!t)return;let div=document.createElement('div');div.className='track-item'+(trackId===tid?' now-playing':'');
+        div.innerHTML=`<span>🎵 ${t.name}</span><span>${format(t.duration)}</span>`;
+        div.addEventListener('click',()=>{if(src)try{src.stop()}catch(e){};playing=false;offset=0;idx=i;play();});
+        trackCont.appendChild(div);});
     }
-  }
-
-  function renderTracksForActivePlaylist() {
-    const pl = playlists.get(activePlaylistId);
-    if (!pl) return;
-    trackListContainer.innerHTML = '';
-    pl.trackIds.forEach((tid, idx) => {
-      const t = tracksLibrary.find(tr=>tr.id===tid);
-      if(!t) return;
-      const div = document.createElement('div'); div.className = 'track-item' + (currentTrackId===tid?' now-playing':'');
-      div.innerHTML = `<span>🎵 ${t.name}</span><span>${formatTime(t.duration)}</span>`;
-      div.addEventListener('click', () => { if(currentSource) try{currentSource.stop();}catch(e){} isPlaying=false; pauseOffset=0; currentTrackIndexInPlaylist=idx; playCurrentTrack(); });
-      trackListContainer.appendChild(div);
+    function updateActive(){let pl=playlists.get(activePl);if(!pl)return;let items=trackCont.children;for(let i=0;i<items.length;i++){if(pl.ids[i]===trackId)items[i].classList.add('now-playing');else items[i].classList.remove('now-playing');}}
+    async function addTrack(name,url,buf=null){if(!buf){if(!ctx)initAudio();let r=await fetch(url);if(!r.ok)throw new Error();let ab=await r.arrayBuffer();buf=await ctx.decodeAudioData(ab);}let id=nextId++;tracks.push({id,name,buf,duration:buf.duration});let pl=playlists.get(activePl);if(pl)pl.ids.push(id);renderPl();renderTracks();if(!buffer&&tracks.length){let f=tracks[0];buffer=f.buf;trackId=f.id;trackName.innerText=f.name;totalTime.innerText=format(f.duration);offset=0;}}
+    async function loadManifest(path='music/manifest.json'){try{let r=await fetch(path);if(!r.ok)throw new Error();let j=await r.json();let files=j.tracks||[];if(!files.length)return;for(let f of files){let url=f.startsWith('http')?f:`music/${f}`;let name=f.split('/').pop().replace(/\.[^/.]+$/,'');await addTrack(name,url);}}catch(e){}}
+    async function genManifest(){if(!window.showDirectoryPicker){alert('Браузер не поддерживает выбор папки');return;}try{let dh=await window.showDirectoryPicker();let list=[];async function scan(h,p=''){for await(let e of h.values()){if(e.kind==='file'&&/\.(mp3|wav|ogg|flac|m4a)$/i.test(e.name))list.push(p?`${p}/${e.name}`:e.name);else if(e.kind==='directory')await scan(e,p?`${p}/${e.name}`:e.name);}}await scan(dh);if(!list.length){alert('Нет аудиофайлов');return;}let blob=new Blob([JSON.stringify({tracks:list},null,2)],{type:'application/json'});let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='manifest.json';a.click();URL.revokeObjectURL(blob);alert(`✅ manifest.json (${list.length} треков) сохранён`);}catch(e){alert('Ошибка: '+e.message);}}
+    async function handleFiles(fs){if(!ctx)initAudio();for(let f of fs){if(f.type.startsWith('audio/')){let ab=await f.arrayBuffer();let buf=await ctx.decodeAudioData(ab);let name=f.name.replace(/\.[^/.]+$/,'');let id=nextId++;tracks.push({id,name,buf,duration:buf.duration});let pl=playlists.get(activePl);if(pl)pl.ids.push(id);}}renderPl();renderTracks();if(!buffer&&tracks.length){let f=tracks[0];buffer=f.buf;trackId=f.id;trackName.innerText=f.name;totalTime.innerText=format(f.duration);offset=0;}updateActive();}
+    function startViz(){let can=document.getElementById('audioCanvas'),c=can.getContext('2d');function draw(){if(!analyser){requestAnimationFrame(draw);return;}let arr=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(arr);c.fillStyle='#03060b';c.fillRect(0,0,can.width,can.height);let bw=(can.width/arr.length)*2.5;for(let i=0;i<arr.length;i++){let h=arr[i]/2;c.fillStyle=`hsl(${200+i/4},70%,60%)`;c.fillRect(i*bw,can.height-h,bw-1,h);}requestAnimationFrame(draw);}draw();}
+    function bind(){
+      playPause.onclick=toggle;prevBtn.onclick=prev;nextBtn.onclick=next;
+      volSlider.oninput=e=>setVolume(+e.target.value);
+      progressBar.addEventListener('click',e=>{let r=progressBar.getBoundingClientRect();let per=(e.clientX-r.left)/r.width;if(buffer)seek(per);});
+      uploadBtn.onclick=()=>fileInput.click();fileInput.onchange=e=>{if(e.target.files.length)handleFiles(Array.from(e.target.files));fileInput.value='';};
+      newPlBtn.onclick=()=>{let n=prompt('Название плейлиста');if(n)playlists.set('pl_'+Date.now(),{name:n,ids:[]});renderPl();};
+      bassSl.oninput=updateEQ;midSl.oninput=updateEQ;trebleSl.oninput=updateEQ;
+      document.querySelectorAll('.preset-btn').forEach(b=>b.addEventListener('click',()=>applyPreset(b.dataset.preset)));
+      genMan.onclick=genManifest;
+      window.addEventListener('dragover',e=>e.preventDefault());
+      window.addEventListener('drop',async e=>{e.preventDefault();let fs=Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('audio/'));if(fs.length)await handleFiles(fs);});
+    }
+    window.addEventListener('load',async()=>{
+      initAudio();loadEQ();let sv=localStorage.getItem('vol');if(sv){volSlider.value=sv;setVolume(+sv);}else setVolume(volSlider.value);
+      bind();startViz();
+      await loadManifest('music/manifest.json');if(!tracks.length)await loadManifest('manifest.json');
+      renderPl();renderTracks();startProgress();
     });
-  }
-
-  function updateTrackListActive() {
-    const items = trackListContainer.children;
-    const pl = playlists.get(activePlaylistId);
-    if(!pl) return;
-    for(let i=0; i<items.length; i++) {
-      const tid = pl.trackIds[i];
-      if(tid === currentTrackId) items[i].classList.add('now-playing');
-      else items[i].classList.remove('now-playing');
-    }
-  }
-
-  async function addTrackFromUrl(name, url, buffer = null) {
-    if(!buffer) {
-      if(!audioCtx) initAudioContext();
-      const resp = await fetch(url);
-      const ab = await resp.arrayBuffer();
-      buffer = await audioCtx.decodeAudioData(ab);
-    }
-    const id = nextTrackId++;
-    tracksLibrary.push({ id, name, buffer, duration: buffer.duration });
-    const pl = playlists.get(activePlaylistId);
-    if(pl) pl.trackIds.push(id);
-    renderPlaylistsUI();
-    renderTracksForActivePlaylist();
-    if(!currentBuffer && tracksLibrary.length) { const first = tracksLibrary[0]; currentBuffer = first.buffer; currentTrackId = first.id; currentTrackNameSpan.innerText = first.name; totalDurationLabel.innerText = formatTime(first.duration); pauseOffset=0; }
-  }
-
-  // ------------------- ЗАГРУЗКА ИЗ MANIFEST.JSON -------------------
-  async function loadMusicFromManifest(manifestPath = 'music/manifest.json') {
-    try {
-      const resp = await fetch(manifestPath);
-      if (!resp.ok) throw new Error('manifest not found');
-      const json = await resp.json();
-      const tracks = json.tracks || [];
-      if (!tracks.length) return;
-      if (!audioCtx) initAudioContext();
-      for (let relPath of tracks) {
-        const url = relPath.startsWith('http') ? relPath : `music/${relPath}`;
-        const fileName = relPath.split('/').pop().replace(/\.[^/.]+$/, '');
-        await addTrackFromUrl(fileName, url);
-      }
-      console.log(`Manifest загружен, добавлено треков: ${tracks.length}`);
-    } catch(e) { console.log("Нет manifest.json или ошибка чтения", e); }
-  }
-
-  // ------------------- ГЕНЕРАТОР MANIFEST.JSON ИЗ ЛОКАЛЬНОЙ ПАПКИ -------------------
-  async function generateManifestFromMusicFolder() {
-    if (!window.showDirectoryPicker) {
-      alert("Ваш браузер не поддерживает выбор папки (File System Access API). Используйте Chrome/Edge/Opera.\nЛибо создайте manifest.json вручную.");
-      return;
-    }
-    try {
-      const dirHandle = await window.showDirectoryPicker();
-      const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a'];
-      const filesList = [];
-      async function scanDir(handle, currentPath = '') {
-        for await (const entry of handle.values()) {
-          if (entry.kind === 'file') {
-            const ext = entry.name.substring(entry.name.lastIndexOf('.')).toLowerCase();
-            if (audioExtensions.includes(ext)) {
-              filesList.push(currentPath ? `${currentPath}/${entry.name}` : entry.name);
-            }
-          } else if (entry.kind === 'directory') {
-            await scanDir(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
-          }
-        }
-      }
-      await scanDir(dirHandle);
-      if (filesList.length === 0) {
-        alert("В выбранной папке не найдено аудиофайлов (.mp3, .wav, .ogg, .flac, .m4a)");
-        return;
-      }
-      const manifestContent = { tracks: filesList };
-      const blob = new Blob([JSON.stringify(manifestContent, null, 2)], {type: 'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'manifest.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      alert(`✅ Файл manifest.json создан! Содержит ${filesList.length} треков.\nСохраните его в корень вашего проекта (рядом с index.html) или в папку music/.`);
-    } catch(err) {
-      if (err.name !== 'AbortError') console.error(err);
-      alert("Ошибка при выборе папки: " + err.message);
-    }
-  }
-
-  // ------------------- РУЧНАЯ ЗАГРУЗКА ФАЙЛОВ -------------------
-  async function handleFiles(files) {
-    if (!audioCtx) initAudioContext();
-    for (let file of files) {
-      if (file.type.startsWith('audio/')) {
-        const ab = await file.arrayBuffer();
-        const buffer = await audioCtx.decodeAudioData(ab);
-        const name = file.name.replace(/\.[^/.]+$/, '');
-        const id = nextTrackId++;
-        tracksLibrary.push({ id, name, buffer, duration: buffer.duration });
-        const pl = playlists.get(activePlaylistId);
-        if (pl) pl.trackIds.push(id);
-      }
-    }
-    renderPlaylistsUI();
-    renderTracksForActivePlaylist();
-    if (!currentBuffer && tracksLibrary.length) { const first = tracksLibrary[0]; currentBuffer = first.buffer; currentTrackId = first.id; currentTrackNameSpan.innerText = first.name; totalDurationLabel.innerText = formatTime(first.duration); pauseOffset=0; }
-  }
-
-  // ------------------- НАЧАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ -------------------
-  function initDefaultPlaylist() {
-    if (!playlists.has('default')) playlists.set('default', { name: 'Все треки', trackIds: [] });
-    activePlaylistId = 'default';
-    renderPlaylistsUI();
-  }
-
-  function startVisualizer() {
-    const canvas = document.getElementById('audioCanvas');
-    const ctx = canvas.getContext('2d');
-    const draw = () => {
-      if (!analyserNode) return;
-      const data = new Uint8Array(analyserNode.frequencyBinCount);
-      analyserNode.getByteFrequencyData(data);
-      ctx.fillStyle = '#03060b';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      const barWidth = (canvas.width / data.length) * 2.5;
-      for (let i=0; i<data.length; i++) {
-        const h = data[i] / 2;
-        ctx.fillStyle = `hsl(${200 + i/4}, 70%, 60%)`;
-        ctx.fillRect(i*barWidth, canvas.height - h, barWidth-1, h);
-      }
-      requestAnimationFrame(draw);
-    };
-    draw();
-  }
-
-  // ------------------- ПРИВЯЗКА СОБЫТИЙ -------------------
-  function bindEvents() {
-    playPauseBtn.onclick = togglePlayPause;
-    prevBtn.onclick = prevTrack;
-    nextBtn.onclick = nextTrack;
-    volumeSlider.oninput = (e) => setVolume(parseFloat(e.target.value));
-    progressBar.addEventListener('click', (e) => { const rect = progressBar.getBoundingClientRect(); const percent = (e.clientX - rect.left) / rect.width; if(currentBuffer) seekTo(percent); });
-    uploadBtn.onclick = () => fileInput.click();
-    fileInput.onchange = (e) => { if(e.target.files.length) handleFiles(Array.from(e.target.files)); fileInput.value = ''; };
-    newPlaylistBtn.onclick = () => { const name = prompt('Название плейлиста'); if(name) { const id = 'pl_'+Date.now(); playlists.set(id, { name, trackIds: [] }); renderPlaylistsUI(); } };
-    bassSlider.oninput = updateEq; midSlider.oninput = updateEq; trebleSlider.oninput = updateEq;
-    document.querySelectorAll('.preset-btn').forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
-    genManifestBtn.onclick = generateManifestFromMusicFolder;
-    window.addEventListener('dragover', e => e.preventDefault());
-    window.addEventListener('drop', async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('audio/')); if(files.length) await handleFiles(files); });
-  }
-
-  window.addEventListener('load', async () => {
-    initAudioContext();
-    initDefaultPlaylist();
-    loadEq();
-    const vol = localStorage.getItem("ipod_volume"); if(vol) volumeSlider.value = vol; setVolume(volumeSlider.value);
-    bindEvents();
-    startVisualizer();
-    // Пытаемся загрузить manifest.json (сначала из папки music, потом из корня)
-    await loadMusicFromManifest('music/manifest.json').catch(()=>{});
-    if(tracksLibrary.length === 0) await loadMusicFromManifest('manifest.json').catch(()=>{});
-    renderPlaylistsUI();
-    renderTracksForActivePlaylist();
-    startProgressUpdater();
-  });
+  })();
 </script>
 </body>
 </html>
