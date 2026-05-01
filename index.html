@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod · корректные кнопки на экране блокировки</title>
+  <title>iPod · фикс кнопок на заблокированном экране</title>
   <style>
     * {
       margin: 0;
@@ -333,7 +333,10 @@
 
 <script>
   (function() {
+    // --- HTML5 Audio ---
     let audio = new Audio();
+    audio.setAttribute('playsinline', '');
+    audio.setAttribute('webkit-playsinline', '');
     let isPlaying = false;
     let tracks = [];
     let nextId = 1;
@@ -342,6 +345,7 @@
     let currentTrackId = null;
     let isSwitching = false;
 
+    // DOM
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
     const progressBar = document.getElementById('progressBar'), fill = document.getElementById('progressFill');
     const curTimeSpan = document.getElementById('currentTimeLabel'), totalSpan = document.getElementById('totalDurationLabel');
@@ -467,16 +471,15 @@
 
     function setupMediaSessionHandlers() {
       if (!('mediaSession' in navigator)) return;
-      try {
-        navigator.mediaSession.setActionHandler('play', () => togglePlay());
-        navigator.mediaSession.setActionHandler('pause', () => togglePlay());
-        navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
-        navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
-        navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
-        // Отключаем кнопки перемотки на 10 секунд
-        navigator.mediaSession.setActionHandler('seekforward', () => {});
-        navigator.mediaSession.setActionHandler('seekbackward', () => {});
-      } catch(e) { console.warn(e); }
+      // Основные действия
+      navigator.mediaSession.setActionHandler('play', () => togglePlay());
+      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+      navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
+      navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
+      navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
+      // Жизненно важно: переопределяем перемотку пустыми функциями (не null!)
+      navigator.mediaSession.setActionHandler('seekforward', () => {});
+      navigator.mediaSession.setActionHandler('seekbackward', () => {});
     }
 
     let wasPlayingBeforeHidden = false;
