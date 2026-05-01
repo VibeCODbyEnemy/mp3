@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod HTML5 Audio · плеер с фоном и обложками</title>
+  <title>iPod · фоновое воспроизведение с эквалайзером (iOS fix)</title>
   <style>
     * {
       margin: 0;
@@ -56,7 +56,6 @@
     }
     .icon-btn:active { background: rgba(255,255,255,0.1); }
 
-    /* Обложка трека */
     .artwork {
       aspect-ratio: 1 / 1;
       width: 85%;
@@ -127,7 +126,6 @@
     .ctrl-btn:active { transform: scale(0.94); background: rgba(255, 255, 255, 0.2); }
     .play-btn { background: #fa6b6b; box-shadow: 0 8px 20px rgba(250, 107, 107, 0.3); }
 
-    /* Выпадающие меню */
     .dropdown {
       position: absolute;
       background: rgba(30, 32, 40, 0.98);
@@ -315,7 +313,6 @@
     </div>
   </div>
 
-  <!-- квадратная обложка -->
   <div class="artwork" id="artwork" style="background-image: none;"></div>
   <div class="track-info">
     <div class="track-name" id="currentTrackName">—</div>
@@ -333,23 +330,25 @@
 </div>
 
 <script>
-  (function(){
-    // --- HTML5 Аудио элемент ---
+  (function() {
+    // --- HTML5 Audio ---
     let audio = new Audio();
     let isPlaying = false;
-    let tracks = [];         // { id, name, url, coverUrl, duration }
+    let tracks = [];          // { id, name, url, coverUrl, duration }
     let nextId = 1;
     let playlists = new Map([['default', { name: 'Основной', ids: [] }]]);
     let activePl = 'default', currentIdx = 0;
     let currentTrackId = null;
     let isSwitching = false;
-    let isSeeking = false;
-    
-    // Эквалайзер (Web Audio API, подключается к audio)
-    let ctx = null, bass = null, mid = null, treble = null, gain = null, sourceNode = null;
-    let eqEnabled = false;
 
-    // DOM элементы
+    // --- Web Audio EQ ---
+    let ctx = null;
+    let bass = null, mid = null, treble = null, gain = null;
+    let sourceNode = null;
+    let eqConnected = false;
+    let needsReconnect = false;
+
+    // DOM
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
     const progressBar = document.getElementById('progressBar'), fill = document.getElementById('progressFill');
     const curTimeSpan = document.getElementById('currentTimeLabel'), totalSpan = document.getElementById('totalDurationLabel');
@@ -367,12 +366,12 @@
     const uploadBtn = document.getElementById('uploadMusicBtn'), fileInput = document.getElementById('fileInput');
     const genManifestBtn = document.getElementById('genManifestBtn');
 
-    // --- Вспомогательные функции ---
+    // --- helpers ---
     function format(sec) { let m = Math.floor(sec/60), s = Math.floor(sec%60); return `${m}:${s<10?'0':''}${s}`; }
 
-    // --- Эквалайзер (Web Audio API) ---
-    function initAudioContext() {
-      if (ctx && ctx.state !== 'closed') return ctx;
+    // --- EQ инициализация (без подключения) ---
+    function initEqContext() {
+      if (ctx && ctx.state !== 'closed') return;
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       gain = ctx.createGain();
       bass = ctx.createBiquadFilter(); bass.type = "lowshelf"; bass.frequency.value = 200;
@@ -381,79 +380,83 @@
       bass.connect(mid); mid.connect(treble); treble.connect(gain);
       gain.connect(ctx.destination);
       gain.gain.value = parseFloat(volumeSlider.value);
-      return ctx;
     }
 
-    function connectEqToAudio() {
-      if (!ctx) initAudioContext();
+    // Подключение EQ к аудио (вызывается при первом воспроизведении и после возвращения)
+    function connectEq() {
+      if (!ctx) initEqContext();
+      if (!audio.src) return;
       if (sourceNode) {
         try { sourceNode.disconnect(); } catch(e) {}
+        sourceNode = null;
       }
-      if (ctx && audio) {
+      try {
         sourceNode = ctx.createMediaElementSource(audio);
         sourceNode.connect(bass);
-        eqEnabled = true;
-        // Сохраняем громкость
+        eqConnected = true;
+        if (ctx.state === 'suspended') ctx.resume().catch(console.warn);
+        updateEqFilters();
         if (gain) gain.gain.value = parseFloat(volumeSlider.value);
-        // Возобновляем контекст если он приостановлен
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(console.warn);
-        }
-      }
+      } catch(e) { console.warn('EQ connect error:', e); }
     }
 
-    function updateEq() {
+    // Отключение EQ (переводим audio напрямую в destination)
+    function disconnectEq() {
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch(e) {}
+        sourceNode = null;
+      }
+      eqConnected = false;
+    }
+
+    function updateEqFilters() {
       if (!bass) return;
       bass.gain.value = parseFloat(bassSl.value);
       mid.gain.value = parseFloat(midSl.value);
       treble.gain.value = parseFloat(trebleSl.value);
-      bassVal.innerText = bass.gain.value+' dB'; midVal.innerText = mid.gain.value+' dB'; trebleVal.innerText = treble.gain.value+' dB';
-      localStorage.setItem('eq_set', JSON.stringify({b:bassSl.value, m:midSl.value, t:trebleSl.value}));
+      bassVal.innerText = bass.gain.value + ' dB';
+      midVal.innerText = mid.gain.value + ' dB';
+      trebleVal.innerText = treble.gain.value + ' dB';
+      localStorage.setItem('eq_set', JSON.stringify({b: bassSl.value, m: midSl.value, t: trebleSl.value}));
     }
 
-    function loadEq() { 
-      let s = localStorage.getItem('eq_set'); 
-      if(s){ let v=JSON.parse(s); bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; } 
-      updateEq(); 
+    function loadEq() {
+      let s = localStorage.getItem('eq_set');
+      if (s) { let v = JSON.parse(s); bassSl.value = v.b; midSl.value = v.m; trebleSl.value = v.t; }
+      updateEqFilters();
     }
 
-    function setVolume(v) { 
-      if (gain) gain.gain.value = v; 
+    function setVolume(v) {
+      if (gain) gain.gain.value = v;
       audio.volume = v;
-      localStorage.setItem('vol_set', v); 
+      localStorage.setItem('vol_set', v);
     }
 
-    function applyPreset(p) { 
-      let m = { flat:{b:0,m:0,t:0}, rock:{b:5,m:-2,t:4}, pop:{b:3,m:1,t:3}, jazz:{b:4,m:2,t:1} }; 
-      let v = m[p] || m.flat; 
-      bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; 
-      updateEq(); 
+    function applyPreset(p) {
+      let m = { flat: {b:0,m:0,t:0}, rock: {b:5,m:-2,t:4}, pop: {b:3,m:1,t:3}, jazz: {b:4,m:2,t:1} };
+      let v = m[p] || m.flat;
+      bassSl.value = v.b; midSl.value = v.m; trebleSl.value = v.t;
+      updateEqFilters();
     }
 
-    // --- Управление воспроизведением ---
+    // --- Воспроизведение ---
     async function playCurrent() {
       let pl = playlists.get(activePl);
       if (!pl || !pl.ids.length) return;
       let track = tracks.find(t => t.id === pl.ids[currentIdx]);
       if (!track) return;
 
-      if (currentTrackId === track.id && audio.src && !audio.paused) {
-        // уже играет этот трек
-        return;
-      }
+      if (currentTrackId === track.id && audio.src && !audio.paused) return;
 
       isSwitching = true;
-      
-      // Останавливаем текущее
       audio.pause();
       audio.src = track.url;
       audio.load();
-      
+
       currentTrackId = track.id;
       trackNameSpan.innerText = track.name;
       totalSpan.innerText = track.duration ? format(track.duration) : '0:00';
-      
-      // Обновляем обложку
+
       if (track.coverUrl) {
         artworkDiv.style.backgroundImage = `url('${track.coverUrl}')`;
         artworkDiv.style.backgroundSize = 'cover';
@@ -462,22 +465,22 @@
         artworkDiv.style.backgroundImage = 'none';
         artworkDiv.innerHTML = '<span>🎵</span>';
       }
-      
-      // Обновляем Media Session
       updateMediaSession(track);
-      
-      // Пытаемся воспроизвести
+
+      // Подключаем EQ если ещё не подключён или нужен reconnect
+      if (!eqConnected && !needsReconnect) {
+        connectEq();
+      } else if (needsReconnect) {
+        connectEq();
+        needsReconnect = false;
+      }
+
       try {
         await audio.play();
         isPlaying = true;
         playBtn.innerText = '⏸';
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-      } catch(e) {
-        console.warn('play error:', e);
-        isPlaying = false;
-        playBtn.innerText = '▶';
-      }
-      
+      } catch(e) { console.warn(e); }
       isSwitching = false;
       updateAllTrackHighlights();
     }
@@ -511,76 +514,21 @@
       let pl = playlists.get(activePl);
       if (!pl || !pl.ids.length) return;
       if (isSwitching) return;
-      
       isSwitching = true;
       let newIdx = currentIdx + d;
       if (newIdx < 0) newIdx = pl.ids.length - 1;
       if (newIdx >= pl.ids.length) newIdx = 0;
       currentIdx = newIdx;
-      
-      // Останавливаем трек (без вызова событий)
       audio.pause();
       audio.src = '';
-      
-      // Загружаем новый
-      let track = tracks.find(t => t.id === pl.ids[currentIdx]);
-      if (track) {
-        audio.src = track.url;
-        audio.load();
-        currentTrackId = track.id;
-        trackNameSpan.innerText = track.name;
-        totalSpan.innerText = track.duration ? format(track.duration) : '0:00';
-        updateMediaSession(track);
-        if (track.coverUrl) {
-          artworkDiv.style.backgroundImage = `url('${track.coverUrl}')`;
-          artworkDiv.style.backgroundSize = 'cover';
-          artworkDiv.innerHTML = '';
-        } else {
-          artworkDiv.style.backgroundImage = 'none';
-          artworkDiv.innerHTML = '<span>🎵</span>';
-        }
-        audio.play().then(() => {
-          isPlaying = true;
-          playBtn.innerText = '⏸';
-          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-        }).catch(console.warn);
-      }
-      isSwitching = false;
-      updateAllTrackHighlights();
+      playCurrent().finally(() => { isSwitching = false; });
     }
 
     function seekTo(percent) {
-      if (!audio.duration) return;
-      let newPos = audio.duration * percent;
-      audio.currentTime = newPos;
+      if (audio.duration) audio.currentTime = audio.duration * percent;
     }
 
-    // --- Обновление прогресса ---
-    function startProgressUpdater() {
-      let anim;
-      function update() {
-        if (audio.duration && !isNaN(audio.duration)) {
-          let percent = (audio.currentTime / audio.duration) * 100;
-          fill.style.width = Math.min(100, percent) + '%';
-          curTimeSpan.innerText = format(audio.currentTime);
-          if (totalSpan.innerText === '0:00' && audio.duration) {
-            totalSpan.innerText = format(audio.duration);
-            // обновляем duration в объекте трека
-            let pl = playlists.get(activePl);
-            if (pl && pl.ids[currentIdx]) {
-              let track = tracks.find(t => t.id === pl.ids[currentIdx]);
-              if (track && !track.duration) track.duration = audio.duration;
-            }
-          }
-        }
-        anim = requestAnimationFrame(update);
-      }
-      update();
-      return () => cancelAnimationFrame(anim);
-    }
-    let stopProgress = startProgressUpdater();
-
-    // --- Media Session API ---
+    // --- Media Session ---
     function updateMediaSession(track) {
       if (!('mediaSession' in navigator)) return;
       const artwork = track.coverUrl ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/jpeg' }] : [];
@@ -594,38 +542,80 @@
 
     function setupMediaSessionHandlers() {
       if (!('mediaSession' in navigator)) return;
-      navigator.mediaSession.setActionHandler('play', () => { togglePlay(); });
-      navigator.mediaSession.setActionHandler('pause', () => { togglePlay(); });
-      navigator.mediaSession.setActionHandler('nexttrack', () => { nextTrack(); });
-      navigator.mediaSession.setActionHandler('previoustrack', () => { prevTrack(); });
-      navigator.mediaSession.setActionHandler('stop', () => { pauseTrack(); });
+      navigator.mediaSession.setActionHandler('play', () => togglePlay());
+      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+      navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
+      navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
+      navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
     }
 
-    // --- Обработчики событий аудио ---
-    function bindAudioEvents() {
-      audio.addEventListener('ended', () => {
-        if (!isSwitching) {
-          nextTrack();
+    // --- Фоновое воспроизведение: отключаем EQ при сворачивании, подключаем обратно при возврате ---
+    let wasPlayingBeforeHidden = false;
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        wasPlayingBeforeHidden = isPlaying;
+        if (isPlaying && eqConnected) {
+          // Отключаем эквалайзер, чтобы звук не пропадал на заблокированном экране
+          disconnectEq();
+          needsReconnect = true;
         }
-      });
-      audio.addEventListener('timeupdate', () => {
-        if (!isSeeking && audio.duration) {
+      } else if (document.visibilityState === 'visible') {
+        if (wasPlayingBeforeHidden && needsReconnect) {
+          // Возвращаем эквалайзер, сохраняя позицию
+          if (audio.src && !audio.paused) {
+            let currentTime = audio.currentTime;
+            connectEq();
+            audio.currentTime = currentTime;
+            if (ctx && ctx.state === 'suspended') ctx.resume().catch(console.warn);
+          } else {
+            connectEq();
+          }
+          needsReconnect = false;
+        }
+        wasPlayingBeforeHidden = false;
+      }
+    }
+
+    // --- Прогресс ---
+    function startProgress() {
+      let anim;
+      function update() {
+        if (audio.duration && !isNaN(audio.duration)) {
           let percent = (audio.currentTime / audio.duration) * 100;
           fill.style.width = Math.min(100, percent) + '%';
           curTimeSpan.innerText = format(audio.currentTime);
+          if (totalSpan.innerText === '0:00' && audio.duration) {
+            totalSpan.innerText = format(audio.duration);
+            let pl = playlists.get(activePl);
+            if (pl && pl.ids[currentIdx]) {
+              let t = tracks.find(tr => tr.id === pl.ids[currentIdx]);
+              if (t && !t.duration) t.duration = audio.duration;
+            }
+          }
         }
+        anim = requestAnimationFrame(update);
+      }
+      update();
+      return () => cancelAnimationFrame(anim);
+    }
+    let stopProgress = startProgress();
+
+    // --- Обработчики аудио ---
+    function bindAudioEvents() {
+      audio.addEventListener('ended', () => {
+        if (!isSwitching) nextTrack();
       });
       audio.addEventListener('loadedmetadata', () => {
         totalSpan.innerText = format(audio.duration);
         let pl = playlists.get(activePl);
         if (pl && pl.ids[currentIdx]) {
-          let track = tracks.find(t => t.id === pl.ids[currentIdx]);
-          if (track && !track.duration) track.duration = audio.duration;
+          let t = tracks.find(tr => tr.id === pl.ids[currentIdx]);
+          if (t && !t.duration) t.duration = audio.duration;
         }
       });
     }
 
-    // --- Рендер меню (плейлисты, треки) ---
+    // --- UI рендер ---
     function renderSimpleTracksMenu() {
       let pl = playlists.get(activePl);
       if (!pl || !pl.ids.length) { tracksDropdown.innerHTML = '<div style="padding:12px">Нет треков</div>'; return; }
@@ -709,14 +699,12 @@
     function updateAllTrackHighlights() {
       let pl = playlists.get(activePl);
       if (!pl) return;
-      // Простое меню
       let rowsSimple = tracksDropdown.children;
       for (let i = 0; i < rowsSimple.length; i++) {
         let tid = pl.ids[i];
         if (tid === currentTrackId) rowsSimple[i].classList.add('now');
         else rowsSimple[i].classList.remove('now');
       }
-      // Меню настроек
       let rowsSettings = trackDropdownList.children;
       for (let i = 0; i < rowsSettings.length; i++) {
         let tid = pl.ids[i];
@@ -728,16 +716,12 @@
     // --- Загрузка треков и обложек ---
     async function addTrackFromUrl(name, url, coverUrl = null) {
       let id = nextId++;
-      // Проверяем длительность (можно загрузить метаданные)
       let duration = 0;
       try {
         let testAudio = new Audio();
         testAudio.src = url;
         await new Promise((resolve) => {
-          testAudio.addEventListener('loadedmetadata', () => {
-            duration = testAudio.duration;
-            resolve();
-          });
+          testAudio.addEventListener('loadedmetadata', () => { duration = testAudio.duration; resolve(); });
           testAudio.addEventListener('error', () => resolve());
         });
       } catch(e) {}
@@ -756,15 +740,15 @@
     async function handleUserFiles(files) {
       let audioFiles = files.filter(f => f.type.startsWith('audio/'));
       let imageFiles = files.filter(f => f.type.startsWith('image/'));
-      for (let audioFile of audioFiles) {
-        let url = URL.createObjectURL(audioFile);
-        let name = audioFile.name.replace(/\.[^/.]+$/, '');
+      for (let af of audioFiles) {
+        let url = URL.createObjectURL(af);
+        let name = af.name.replace(/\.[^/.]+$/, '');
         let coverUrl = null;
-        let baseName = audioFile.name.substring(0, audioFile.name.lastIndexOf('.'));
-        let matchingImage = imageFiles.find(img => img.name.startsWith(baseName) && /\.(jpg|jpeg|png)$/i.test(img.name));
-        if (matchingImage) {
-          coverUrl = URL.createObjectURL(matchingImage);
-          imageFiles = imageFiles.filter(img => img !== matchingImage);
+        let baseName = af.name.substring(0, af.name.lastIndexOf('.'));
+        let matchImg = imageFiles.find(img => img.name.startsWith(baseName) && /\.(jpg|jpeg|png)$/i.test(img.name));
+        if (matchImg) {
+          coverUrl = URL.createObjectURL(matchImg);
+          imageFiles = imageFiles.filter(img => img !== matchImg);
         }
         await addTrackFromUrl(name, url, coverUrl);
       }
@@ -779,8 +763,7 @@
         for (let f of files) {
           let url = f.startsWith('http') ? f : `music/${f}`;
           let name = f.split('/').pop().replace(/\.[^/.]+$/, '');
-          let coverUrl = null;
-          if (json.covers && json.covers[f]) coverUrl = json.covers[f];
+          let coverUrl = (json.covers && json.covers[f]) ? json.covers[f] : null;
           await addTrackFromUrl(name, url, coverUrl);
         }
       } catch(e) { console.log('manifest not loaded'); }
@@ -793,42 +776,29 @@
         let audioList = [];
         async function scan(h, path = '') {
           for await (let e of h.values()) {
-            if (e.kind === 'file' && /\.(mp3|wav|ogg|flac|m4a)$/i.test(e.name)) 
-              audioList.push(path ? `${path}/${e.name}` : e.name);
-            else if (e.kind === 'directory') 
-              await scan(e, path ? `${path}/${e.name}` : e.name);
+            if (e.kind === 'file' && /\.(mp3|wav|ogg|flac|m4a)$/i.test(e.name)) audioList.push(path ? `${path}/${e.name}` : e.name);
+            else if (e.kind === 'directory') await scan(e, path ? `${path}/${e.name}` : e.name);
           }
         }
         await scan(dir);
         if (!audioList.length) { alert('Нет аудио'); return; }
-        let manifestContent = { tracks: audioList };
-        let blob = new Blob([JSON.stringify(manifestContent, null, 2)], { type: 'application/json' });
+        let blob = new Blob([JSON.stringify({ tracks: audioList }, null, 2)], { type: 'application/json' });
         let a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'manifest.json'; a.click(); URL.revokeObjectURL(blob);
         alert(`✅ manifest.json (${audioList.length} треков) сохранён`);
       } catch(e) { alert('Ошибка: ' + e.message); }
     }
 
-    // --- Фоновое воспроизведение (видимость) ---
-    let wasPlayingBeforeHidden = false;
-    function handleVisibilityChange() {
-      if (document.visibilityState === 'hidden') {
-        wasPlayingBeforeHidden = isPlaying;
-      } else if (document.visibilityState === 'visible') {
-        if (wasPlayingBeforeHidden && !isPlaying) {
-          audio.play().catch(console.warn);
-          isPlaying = true;
-          playBtn.innerText = '⏸';
-          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-        }
-        wasPlayingBeforeHidden = false;
-        // "Пробуждение" AudioContext если он приостановлен
-        if (ctx && ctx.state === 'suspended') {
-          ctx.resume().catch(console.warn);
-        }
-      }
+    // --- Инициализация ---
+    function init() {
+      loadEq();
+      let sv = localStorage.getItem('vol_set');
+      if (sv) { volumeSlider.value = sv; setVolume(+sv); } else setVolume(volumeSlider.value);
+      bindEvents();
+      bindAudioEvents();
+      setupMediaSessionHandlers();
+      initEqContext();
     }
 
-    // --- События ---
     function bindEvents() {
       playBtn.onclick = togglePlay;
       prevBtn.onclick = prevTrack;
@@ -839,7 +809,6 @@
         seekTo(per);
       });
       volumeSlider.oninput = (e) => setVolume(parseFloat(e.target.value));
-      
       tracksListBtn.onclick = (e) => {
         e.stopPropagation();
         tracksDropdown.classList.toggle('show');
@@ -852,45 +821,35 @@
         tracksDropdown.classList.remove('show');
       };
       document.addEventListener('click', (e) => {
-        if (!tracksListBtn.contains(e.target) && !tracksDropdown.contains(e.target)) 
-          tracksDropdown.classList.remove('show');
-        if (!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) 
-          settingsDropdown.classList.remove('show');
+        if (!tracksListBtn.contains(e.target) && !tracksDropdown.contains(e.target)) tracksDropdown.classList.remove('show');
+        if (!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) settingsDropdown.classList.remove('show');
       });
-      
-      bassSl.oninput = updateEq; midSl.oninput = updateEq; trebleSl.oninput = updateEq;
-      document.querySelectorAll('.preset-btn').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
-      newPlBtn.onclick = () => { let nm = prompt('Название плейлиста'); if(nm) playlists.set('pl_'+Date.now(), { name: nm, ids: [] }); renderPlaylistsUI(); renderSimpleTracksMenu(); };
+      bassSl.oninput = updateEqFilters;
+      midSl.oninput = updateEqFilters;
+      trebleSl.oninput = updateEqFilters;
+      document.querySelectorAll('.preset-btn').forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
+      newPlBtn.onclick = () => { let nm = prompt('Название плейлиста'); if (nm) playlists.set('pl_' + Date.now(), { name: nm, ids: [] }); renderPlaylistsUI(); renderSimpleTracksMenu(); };
       uploadBtn.onclick = () => fileInput.click();
-      fileInput.onchange = (e) => { if(e.target.files.length) handleUserFiles(Array.from(e.target.files)); fileInput.value=''; };
+      fileInput.onchange = (e) => { if (e.target.files.length) handleUserFiles(Array.from(e.target.files)); fileInput.value = ''; };
       genManifestBtn.onclick = generateManifest;
-      window.addEventListener('dragover', e=>e.preventDefault());
-      window.addEventListener('drop', async e=>{ e.preventDefault(); let fs = Array.from(e.dataTransfer.files); await handleUserFiles(fs); });
+      window.addEventListener('dragover', e => e.preventDefault());
+      window.addEventListener('drop', async e => { e.preventDefault(); let fs = Array.from(e.dataTransfer.files); await handleUserFiles(fs); });
       document.addEventListener('visibilitychange', handleVisibilityChange);
-      
-      // Подключаем эквалайзер к аудио (после первого действия пользователя)
+      // Подключаем EQ при первом воспроизведении (через одноразовый клик)
       document.body.addEventListener('click', () => {
-        if (!eqEnabled && audio.src) {
-          connectEqToAudio();
+        if (!eqConnected && audio.src) {
+          connectEq();
         }
       }, { once: true });
     }
 
-    window.addEventListener('load', async() => {
-      loadEq();
-      let sv = localStorage.getItem('vol_set'); 
-      if (sv) { volumeSlider.value = sv; setVolume(+sv); } 
-      else setVolume(volumeSlider.value);
-      bindEvents();
-      bindAudioEvents();
-      setupMediaSessionHandlers();
+    window.addEventListener('load', async () => {
+      init();
       await loadMusicViaManifest('music/manifest.json');
       if (!tracks.length) await loadMusicViaManifest('manifest.json');
-      renderPlaylistsUI(); 
-      renderTracksInSettings(); 
+      renderPlaylistsUI();
+      renderTracksInSettings();
       renderSimpleTracksMenu();
-      // Инициализируем эквалайзер (без подключения к audio)
-      initAudioContext();
     });
   })();
 </script>
