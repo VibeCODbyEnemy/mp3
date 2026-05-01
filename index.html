@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod · плеер с фоновым воспроизведением</title>
+  <title>iPod · плеер с Media Session</title>
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      user-select: none;          /* запрет выделения текста */
+      user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
 
     html, body {
       height: 100%;
-      overflow: hidden;          /* запрет прокрутки страницы */
+      overflow: hidden;
       background: radial-gradient(circle at 30% 20%, #121212, #000000);
       font-family: system-ui, -apple-system, 'SF Pro Text', Helvetica, sans-serif;
     }
@@ -343,7 +343,42 @@
     let activePl = 'default', currentIdx = 0;
     let bass, mid, treble, gain, analyser;
     let animFrame = null;
-    let isSwitching = false;   // флаг для предотвращения зацикливания onended
+    let isEnding = false;     // блокируем повторный вызов onended
+    let isSwitching = false;  // блокируем переключение во время ручного
+
+    // --- Media Session API ---
+    function updateMediaSessionMetadata(trackName, artistName = 'Альбом') {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: trackName,
+          artist: artistName,
+          album: 'Альбом',
+          artwork: []
+        });
+      }
+    }
+
+    function setMediaSessionPlaybackState(state) {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = state;
+      }
+    }
+
+    function setupMediaSessionHandlers() {
+      if (!('mediaSession' in navigator)) return;
+      navigator.mediaSession.setActionHandler('play', () => {
+        togglePlay();
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        togglePlay();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        nextTrack();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        prevTrack();
+      });
+    }
 
     // DOM
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
@@ -387,11 +422,11 @@
     function setVolume(v) { if(gain) gain.gain.value = v; localStorage.setItem('vol_set', v); }
     function applyPreset(p) { let m = { flat:{b:0,m:0,t:0}, rock:{b:5,m:-2,t:4}, pop:{b:3,m:1,t:3}, jazz:{b:4,m:2,t:1} }; let v = m[p] || m.flat; bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; updateEq(); }
 
-    // Остановка источника с очисткой обработчика
+    // Безопасная остановка источника
     function stopSource() {
       if(source) {
         try {
-          source.onended = null;   // отключаем обработчик, чтобы не вызывал nextTrack
+          source.onended = null;   // отключаем обработчик, чтобы он не вызвался после остановки
           source.stop();
         } catch(e) {}
         source = null;
@@ -407,7 +442,7 @@
       let tr = tracks.find(t => t.id === pl.ids[currentIdx]);
       if(!tr || !tr.buf) return;
 
-      stopSource(); // останавливаем старый источник без вызова onended
+      stopSource(); // останавливаем старый источник, сброс onended
 
       buffer = tr.buf;
       trackId = tr.id;
@@ -415,13 +450,19 @@
       totalSpan.innerText = format(buffer.duration);
       updateAllTrackHighlights();
 
+      // Обновляем Media Session
+      updateMediaSessionMetadata(tr.name);
+      setMediaSessionPlaybackState('playing');
+
       source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(bass);
-      // назначаем обработчик только один раз
+      // Обработчик окончания с защитой от повторных вызовов
       source.onended = () => {
-        if(playing && !isSwitching) {
+        if(!isEnding && !isSwitching && playing) {
+          isEnding = true;
           nextTrack();
+          setTimeout(() => { isEnding = false; }, 100);
         }
       };
       source.start(0, pauseOffset);
@@ -436,9 +477,10 @@
       if(!playing || !source) return;
       let elapsed = ctx.currentTime - startTime;
       pauseOffset = Math.max(0, elapsed);
-      stopSource();  // остановка с очисткой обработчика
+      stopSource();
       playing = false;
       playBtn.innerText = '▶';
+      setMediaSessionPlaybackState('paused');
     }
 
     function togglePlay() {
@@ -458,18 +500,15 @@
     function changeTrack(d) {
       let pl = playlists.get(activePl);
       if(!pl || !pl.ids.length) return;
-
-      isSwitching = true;  // блокируем onended во время переключения
-      stopSource();        // останавливаем старый трек без вызова nextTrack
+      if(isSwitching) return;
+      isSwitching = true;
+      stopSource();  // очищаем текущий источник и отключаем onended
       playing = false;
       pauseOffset = 0;
-
       let newIdx = currentIdx + d;
       if(newIdx < 0) newIdx = pl.ids.length - 1;
       if(newIdx >= pl.ids.length) newIdx = 0;
       currentIdx = newIdx;
-
-      // вызываем воспроизведение нового трека
       playCurrent().finally(() => {
         isSwitching = false;
       });
@@ -503,7 +542,7 @@
       update();
     }
 
-    // --- Рендер меню ---
+    // --- Рендер меню (без изменений, но добавим флаг isSwitching)---
     function renderSimpleTracksMenu() {
       let pl = playlists.get(activePl);
       if(!pl) { tracksDropdown.innerHTML = '<div style="padding:12px">Нет треков</div>'; return; }
@@ -526,7 +565,6 @@
         tracksDropdown.appendChild(row);
       });
     }
-
     function renderPlaylistsUI() {
       playlistListDiv.innerHTML = '';
       for(let [id, pl] of playlists){
@@ -535,6 +573,8 @@
         div.innerHTML = `<span>${pl.name}</span>${id !== 'default' ? '<button data-del="true">🗑</button>' : ''}`;
         div.addEventListener('click', (e) => {
           if(e.target.tagName === 'BUTTON') return;
+          if(isSwitching) return;
+          isSwitching = true;
           activePl = id;
           currentIdx = 0; pauseOffset = 0;
           stopSource();
@@ -549,6 +589,7 @@
             else { buffer=null; trackNameSpan.innerText='—'; totalSpan.innerText='0:00'; }
           } else { buffer=null; trackNameSpan.innerText='—'; totalSpan.innerText='0:00'; }
           updateAllTrackHighlights();
+          isSwitching = false;
         });
         if(id !== 'default'){
           let delBtn = div.querySelector('button');
@@ -589,14 +630,12 @@
     function updateAllTrackHighlights() {
       let pl = playlists.get(activePl);
       if(!pl) return;
-      // простое меню
       let rowsSimple = tracksDropdown.children;
       for(let i=0; i<rowsSimple.length; i++){
         let tid = pl.ids[i];
         if(tid === trackId) rowsSimple[i].classList.add('now');
         else rowsSimple[i].classList.remove('now');
       }
-      // меню настроек
       let rowsSettings = trackDropdownList.children;
       for(let i=0; i<rowsSettings.length; i++){
         let tid = pl.ids[i];
@@ -605,7 +644,7 @@
       }
     }
 
-    // --- Добавление треков ---
+    // --- Загрузка треков ---
     async function addTrackFromUrl(name, url, buf=null){
       if(!buf){
         if(!ctx) initAudio();
@@ -675,10 +714,37 @@
       }catch(e){ alert('Ошибка: '+e.message); }
     }
 
-    // --- Фоновая работа ---
+    // --- Фоновое воспроизведение на iOS + Media Session ---
+    let wasPlayingBeforeHidden = false;
+    let savedPauseOffset = 0;
     function handleVisibilityChange() {
-      if(document.visibilityState === 'visible' && ctx && ctx.state === 'suspended') {
-        ctx.resume().catch(console.warn);
+      if(document.visibilityState === 'hidden') {
+        wasPlayingBeforeHidden = playing;
+        if(playing && ctx && ctx.state !== 'closed') {
+          if(source && startTime) {
+            savedPauseOffset = ctx.currentTime - startTime;
+          } else {
+            savedPauseOffset = pauseOffset;
+          }
+        }
+      } else if(document.visibilityState === 'visible') {
+        if(wasPlayingBeforeHidden && ctx) {
+          if(ctx.state === 'suspended') {
+            ctx.resume().then(() => {
+              if(!playing && buffer && savedPauseOffset >= 0) {
+                pauseOffset = savedPauseOffset;
+                playCurrent();
+              }
+            }).catch(console.warn);
+          } else {
+            if(!playing && buffer && savedPauseOffset >= 0) {
+              pauseOffset = savedPauseOffset;
+              playCurrent();
+            }
+          }
+        }
+        wasPlayingBeforeHidden = false;
+        savedPauseOffset = 0;
       }
     }
 
@@ -715,6 +781,9 @@
       window.addEventListener('dragover', e=>e.preventDefault());
       window.addEventListener('drop', async e=>{ e.preventDefault(); let fs = Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('audio/')); if(fs.length) await handleUserFiles(fs); });
       document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      // Инициализация Media Session обработчиков
+      setupMediaSessionHandlers();
     }
 
     window.addEventListener('load', async()=>{
