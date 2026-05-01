@@ -2,10 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, shrink-to-fit=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>iPod · полноэкранный плеер с обложками</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>iPod HTML5 Audio · плеер с фоном и обложками</title>
   <style>
     * {
       margin: 0;
@@ -336,18 +334,22 @@
 
 <script>
   (function(){
-    // --- Аудио ---
-    let ctx = null, playing = false, source = null, buffer = null, trackId = null;
-    let startTime = 0, pauseOffset = 0;
-    let tracks = [];         // { id, name, buf, duration, coverUrl }
+    // --- HTML5 Аудио элемент ---
+    let audio = new Audio();
+    let isPlaying = false;
+    let tracks = [];         // { id, name, url, coverUrl, duration }
     let nextId = 1;
     let playlists = new Map([['default', { name: 'Основной', ids: [] }]]);
     let activePl = 'default', currentIdx = 0;
-    let bass, mid, treble, gain, analyser;
-    let animFrame = null;
-    let isEnding = false, isSwitching = false;
+    let currentTrackId = null;
+    let isSwitching = false;
+    let isSeeking = false;
+    
+    // Эквалайзер (Web Audio API, подключается к audio)
+    let ctx = null, bass = null, mid = null, treble = null, gain = null, sourceNode = null;
+    let eqEnabled = false;
 
-    // DOM
+    // DOM элементы
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
     const progressBar = document.getElementById('progressBar'), fill = document.getElementById('progressFill');
     const curTimeSpan = document.getElementById('currentTimeLabel'), totalSpan = document.getElementById('totalDurationLabel');
@@ -365,20 +367,229 @@
     const uploadBtn = document.getElementById('uploadMusicBtn'), fileInput = document.getElementById('fileInput');
     const genManifestBtn = document.getElementById('genManifestBtn');
 
-    // --- Media Session API ---
-    function updateMediaSession() {
-      if (!('mediaSession' in navigator)) return;
-      const track = tracks.find(t => t.id === trackId);
+    // --- Вспомогательные функции ---
+    function format(sec) { let m = Math.floor(sec/60), s = Math.floor(sec%60); return `${m}:${s<10?'0':''}${s}`; }
+
+    // --- Эквалайзер (Web Audio API) ---
+    function initAudioContext() {
+      if (ctx && ctx.state !== 'closed') return ctx;
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      gain = ctx.createGain();
+      bass = ctx.createBiquadFilter(); bass.type = "lowshelf"; bass.frequency.value = 200;
+      mid = ctx.createBiquadFilter(); mid.type = "peaking"; mid.frequency.value = 1000;
+      treble = ctx.createBiquadFilter(); treble.type = "highshelf"; treble.frequency.value = 5000;
+      bass.connect(mid); mid.connect(treble); treble.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.value = parseFloat(volumeSlider.value);
+      return ctx;
+    }
+
+    function connectEqToAudio() {
+      if (!ctx) initAudioContext();
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch(e) {}
+      }
+      if (ctx && audio) {
+        sourceNode = ctx.createMediaElementSource(audio);
+        sourceNode.connect(bass);
+        eqEnabled = true;
+        // Сохраняем громкость
+        if (gain) gain.gain.value = parseFloat(volumeSlider.value);
+        // Возобновляем контекст если он приостановлен
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(console.warn);
+        }
+      }
+    }
+
+    function updateEq() {
+      if (!bass) return;
+      bass.gain.value = parseFloat(bassSl.value);
+      mid.gain.value = parseFloat(midSl.value);
+      treble.gain.value = parseFloat(trebleSl.value);
+      bassVal.innerText = bass.gain.value+' dB'; midVal.innerText = mid.gain.value+' dB'; trebleVal.innerText = treble.gain.value+' dB';
+      localStorage.setItem('eq_set', JSON.stringify({b:bassSl.value, m:midSl.value, t:trebleSl.value}));
+    }
+
+    function loadEq() { 
+      let s = localStorage.getItem('eq_set'); 
+      if(s){ let v=JSON.parse(s); bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; } 
+      updateEq(); 
+    }
+
+    function setVolume(v) { 
+      if (gain) gain.gain.value = v; 
+      audio.volume = v;
+      localStorage.setItem('vol_set', v); 
+    }
+
+    function applyPreset(p) { 
+      let m = { flat:{b:0,m:0,t:0}, rock:{b:5,m:-2,t:4}, pop:{b:3,m:1,t:3}, jazz:{b:4,m:2,t:1} }; 
+      let v = m[p] || m.flat; 
+      bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; 
+      updateEq(); 
+    }
+
+    // --- Управление воспроизведением ---
+    async function playCurrent() {
+      let pl = playlists.get(activePl);
+      if (!pl || !pl.ids.length) return;
+      let track = tracks.find(t => t.id === pl.ids[currentIdx]);
       if (!track) return;
-      const coverUrl = track.coverUrl || '';
-      const artwork = coverUrl ? [{ src: coverUrl, sizes: '512x512', type: 'image/jpeg' }] : [];
+
+      if (currentTrackId === track.id && audio.src && !audio.paused) {
+        // уже играет этот трек
+        return;
+      }
+
+      isSwitching = true;
+      
+      // Останавливаем текущее
+      audio.pause();
+      audio.src = track.url;
+      audio.load();
+      
+      currentTrackId = track.id;
+      trackNameSpan.innerText = track.name;
+      totalSpan.innerText = track.duration ? format(track.duration) : '0:00';
+      
+      // Обновляем обложку
+      if (track.coverUrl) {
+        artworkDiv.style.backgroundImage = `url('${track.coverUrl}')`;
+        artworkDiv.style.backgroundSize = 'cover';
+        artworkDiv.innerHTML = '';
+      } else {
+        artworkDiv.style.backgroundImage = 'none';
+        artworkDiv.innerHTML = '<span>🎵</span>';
+      }
+      
+      // Обновляем Media Session
+      updateMediaSession(track);
+      
+      // Пытаемся воспроизвести
+      try {
+        await audio.play();
+        isPlaying = true;
+        playBtn.innerText = '⏸';
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      } catch(e) {
+        console.warn('play error:', e);
+        isPlaying = false;
+        playBtn.innerText = '▶';
+      }
+      
+      isSwitching = false;
+      updateAllTrackHighlights();
+    }
+
+    function pauseTrack() {
+      audio.pause();
+      isPlaying = false;
+      playBtn.innerText = '▶';
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    }
+
+    function togglePlay() {
+      if (isPlaying) {
+        pauseTrack();
+      } else {
+        if (!audio.src || audio.paused) {
+          playCurrent();
+        } else {
+          audio.play().catch(console.warn);
+          isPlaying = true;
+          playBtn.innerText = '⏸';
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+        }
+      }
+    }
+
+    function nextTrack() { changeTrack(1); }
+    function prevTrack() { changeTrack(-1); }
+
+    function changeTrack(d) {
+      let pl = playlists.get(activePl);
+      if (!pl || !pl.ids.length) return;
+      if (isSwitching) return;
+      
+      isSwitching = true;
+      let newIdx = currentIdx + d;
+      if (newIdx < 0) newIdx = pl.ids.length - 1;
+      if (newIdx >= pl.ids.length) newIdx = 0;
+      currentIdx = newIdx;
+      
+      // Останавливаем трек (без вызова событий)
+      audio.pause();
+      audio.src = '';
+      
+      // Загружаем новый
+      let track = tracks.find(t => t.id === pl.ids[currentIdx]);
+      if (track) {
+        audio.src = track.url;
+        audio.load();
+        currentTrackId = track.id;
+        trackNameSpan.innerText = track.name;
+        totalSpan.innerText = track.duration ? format(track.duration) : '0:00';
+        updateMediaSession(track);
+        if (track.coverUrl) {
+          artworkDiv.style.backgroundImage = `url('${track.coverUrl}')`;
+          artworkDiv.style.backgroundSize = 'cover';
+          artworkDiv.innerHTML = '';
+        } else {
+          artworkDiv.style.backgroundImage = 'none';
+          artworkDiv.innerHTML = '<span>🎵</span>';
+        }
+        audio.play().then(() => {
+          isPlaying = true;
+          playBtn.innerText = '⏸';
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+        }).catch(console.warn);
+      }
+      isSwitching = false;
+      updateAllTrackHighlights();
+    }
+
+    function seekTo(percent) {
+      if (!audio.duration) return;
+      let newPos = audio.duration * percent;
+      audio.currentTime = newPos;
+    }
+
+    // --- Обновление прогресса ---
+    function startProgressUpdater() {
+      let anim;
+      function update() {
+        if (audio.duration && !isNaN(audio.duration)) {
+          let percent = (audio.currentTime / audio.duration) * 100;
+          fill.style.width = Math.min(100, percent) + '%';
+          curTimeSpan.innerText = format(audio.currentTime);
+          if (totalSpan.innerText === '0:00' && audio.duration) {
+            totalSpan.innerText = format(audio.duration);
+            // обновляем duration в объекте трека
+            let pl = playlists.get(activePl);
+            if (pl && pl.ids[currentIdx]) {
+              let track = tracks.find(t => t.id === pl.ids[currentIdx]);
+              if (track && !track.duration) track.duration = audio.duration;
+            }
+          }
+        }
+        anim = requestAnimationFrame(update);
+      }
+      update();
+      return () => cancelAnimationFrame(anim);
+    }
+    let stopProgress = startProgressUpdater();
+
+    // --- Media Session API ---
+    function updateMediaSession(track) {
+      if (!('mediaSession' in navigator)) return;
+      const artwork = track.coverUrl ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/jpeg' }] : [];
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.name,
         artist: 'Исполнитель',
         album: 'Плейлист',
         artwork: artwork
       });
-      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
     }
 
     function setupMediaSessionHandlers() {
@@ -390,175 +601,46 @@
       navigator.mediaSession.setActionHandler('stop', () => { pauseTrack(); });
     }
 
-    // --- Обновление обложки в интерфейсе ---
-    function updateArtwork() {
-      const track = tracks.find(t => t.id === trackId);
-      if (track && track.coverUrl) {
-        artworkDiv.style.backgroundImage = `url('${track.coverUrl}')`;
-        artworkDiv.style.backgroundSize = 'cover';
-        artworkDiv.innerHTML = '';
-      } else {
-        artworkDiv.style.backgroundImage = 'none';
-        artworkDiv.innerHTML = '<span>🎵</span>';
-      }
-    }
-
-    // --- Вспомогательные функции ---
-    function format(sec) { let m = Math.floor(sec/60), s = Math.floor(sec%60); return `${m}:${s<10?'0':''}${s}`; }
-
-    function initAudio() {
-      if(ctx && ctx.state !== 'closed') return ctx;
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      gain = ctx.createGain(); analyser = ctx.createAnalyser(); analyser.fftSize = 256;
-      gain.gain.value = parseFloat(volumeSlider.value);
-      bass = ctx.createBiquadFilter(); bass.type = "lowshelf"; bass.frequency.value = 200;
-      mid = ctx.createBiquadFilter(); mid.type = "peaking"; mid.frequency.value = 1000;
-      treble = ctx.createBiquadFilter(); treble.type = "highshelf"; treble.frequency.value = 5000;
-      bass.connect(mid); mid.connect(treble); treble.connect(gain); gain.connect(analyser); analyser.connect(ctx.destination);
-      return ctx;
-    }
-    function updateEq() {
-      if(!bass) return;
-      bass.gain.value = parseFloat(bassSl.value);
-      mid.gain.value = parseFloat(midSl.value);
-      treble.gain.value = parseFloat(trebleSl.value);
-      bassVal.innerText = bass.gain.value+' dB'; midVal.innerText = mid.gain.value+' dB'; trebleVal.innerText = treble.gain.value+' dB';
-      localStorage.setItem('eq_set', JSON.stringify({b:bassSl.value, m:midSl.value, t:trebleSl.value}));
-    }
-    function loadEq() { let s = localStorage.getItem('eq_set'); if(s){ let v=JSON.parse(s); bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; } updateEq(); }
-    function setVolume(v) { if(gain) gain.gain.value = v; localStorage.setItem('vol_set', v); }
-    function applyPreset(p) { let m = { flat:{b:0,m:0,t:0}, rock:{b:5,m:-2,t:4}, pop:{b:3,m:1,t:3}, jazz:{b:4,m:2,t:1} }; let v = m[p] || m.flat; bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; updateEq(); }
-
-    function stopSource() {
-      if(source) {
-        try {
-          source.onended = null;
-          source.stop();
-        } catch(e) {}
-        source = null;
-      }
-    }
-
-    async function playCurrent() {
-      if(!ctx) initAudio();
-      if(ctx.state === 'suspended') await ctx.resume();
-
-      let pl = playlists.get(activePl);
-      if(!pl || !pl.ids.length) return;
-      let tr = tracks.find(t => t.id === pl.ids[currentIdx]);
-      if(!tr || !tr.buf) return;
-
-      stopSource();
-      buffer = tr.buf;
-      trackId = tr.id;
-      trackNameSpan.innerText = tr.name;
-      totalSpan.innerText = format(buffer.duration);
-      updateArtwork();
-      updateMediaSession();
-      updateAllTrackHighlights();
-
-      source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(bass);
-      source.onended = () => {
-        if(!isEnding && !isSwitching && playing) {
-          isEnding = true;
+    // --- Обработчики событий аудио ---
+    function bindAudioEvents() {
+      audio.addEventListener('ended', () => {
+        if (!isSwitching) {
           nextTrack();
-          setTimeout(() => { isEnding = false; }, 100);
         }
-      };
-      source.start(0, pauseOffset);
-      startTime = ctx.currentTime - pauseOffset;
-      playing = true;
-      playBtn.innerText = '⏸';
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-      pauseOffset = 0;
-      startProgress();
-    }
-
-    function pauseTrack() {
-      if(!playing || !source) return;
-      let elapsed = ctx.currentTime - startTime;
-      pauseOffset = Math.max(0, elapsed);
-      stopSource();
-      playing = false;
-      playBtn.innerText = '▶';
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    }
-
-    function togglePlay() {
-      if(!ctx) initAudio();
-      if(playing) pauseTrack();
-      else {
-        if(!buffer && tracks.length){
-          let pl = playlists.get(activePl);
-          if(pl && pl.ids.length) { currentIdx=0; pauseOffset=0; playCurrent(); }
-        } else if(buffer) playCurrent();
-      }
-    }
-
-    function nextTrack() { changeTrack(1); }
-    function prevTrack() { changeTrack(-1); }
-
-    function changeTrack(d) {
-      let pl = playlists.get(activePl);
-      if(!pl || !pl.ids.length) return;
-      if(isSwitching) return;
-      isSwitching = true;
-      stopSource();
-      playing = false;
-      pauseOffset = 0;
-      let newIdx = currentIdx + d;
-      if(newIdx < 0) newIdx = pl.ids.length - 1;
-      if(newIdx >= pl.ids.length) newIdx = 0;
-      currentIdx = newIdx;
-      playCurrent().finally(() => { isSwitching = false; });
-    }
-
-    function seek(percent) {
-      if(!buffer) return;
-      let newPos = buffer.duration * percent;
-      let wasPlaying = playing;
-      if(playing && source) {
-        pauseTrack();
-        pauseOffset = newPos;
-        if(wasPlaying) playCurrent();
-      } else {
-        pauseOffset = newPos;
-      }
-    }
-
-    function startProgress() {
-      if(animFrame) cancelAnimationFrame(animFrame);
-      function update(){
-        if(buffer){
-          let cur = pauseOffset;
-          if(playing && source && startTime) cur = ctx.currentTime - startTime;
-          let percent = (cur / buffer.duration) * 100;
-          fill.style.width = Math.min(100, percent)+'%';
-          curTimeSpan.innerText = format(cur);
+      });
+      audio.addEventListener('timeupdate', () => {
+        if (!isSeeking && audio.duration) {
+          let percent = (audio.currentTime / audio.duration) * 100;
+          fill.style.width = Math.min(100, percent) + '%';
+          curTimeSpan.innerText = format(audio.currentTime);
         }
-        animFrame = requestAnimationFrame(update);
-      }
-      update();
+      });
+      audio.addEventListener('loadedmetadata', () => {
+        totalSpan.innerText = format(audio.duration);
+        let pl = playlists.get(activePl);
+        if (pl && pl.ids[currentIdx]) {
+          let track = tracks.find(t => t.id === pl.ids[currentIdx]);
+          if (track && !track.duration) track.duration = audio.duration;
+        }
+      });
     }
 
-    // --- Рендер меню ---
+    // --- Рендер меню (плейлисты, треки) ---
     function renderSimpleTracksMenu() {
       let pl = playlists.get(activePl);
-      if(!pl) { tracksDropdown.innerHTML = '<div style="padding:12px">Нет треков</div>'; return; }
+      if (!pl || !pl.ids.length) { tracksDropdown.innerHTML = '<div style="padding:12px">Нет треков</div>'; return; }
       tracksDropdown.innerHTML = '';
       pl.ids.forEach((tid, i) => {
         let t = tracks.find(tr => tr.id === tid);
-        if(!t) return;
+        if (!t) return;
         let row = document.createElement('div');
-        row.className = 'track-row' + (trackId === tid ? ' now' : '');
-        row.innerHTML = `<span>${t.name}</span><span>${format(t.duration)}</span>`;
+        row.className = 'track-row' + (currentTrackId === tid ? ' now' : '');
+        row.innerHTML = `<span>${t.name}</span><span>${t.duration ? format(t.duration) : '--:--'}</span>`;
         row.addEventListener('click', () => {
-          if(isSwitching) return;
+          if (isSwitching) return;
           isSwitching = true;
-          stopSource();
-          playing = false; pauseOffset = 0;
+          audio.pause();
+          audio.src = '';
           currentIdx = i;
           playCurrent().finally(() => { isSwitching = false; });
           tracksDropdown.classList.remove('show');
@@ -569,37 +651,29 @@
 
     function renderPlaylistsUI() {
       playlistListDiv.innerHTML = '';
-      for(let [id, pl] of playlists){
+      for (let [id, pl] of playlists) {
         let div = document.createElement('div');
         div.className = 'pl-item' + (activePl === id ? ' active' : '');
         div.innerHTML = `<span>${pl.name}</span>${id !== 'default' ? '<button data-del="true">🗑</button>' : ''}`;
         div.addEventListener('click', (e) => {
-          if(e.target.tagName === 'BUTTON') return;
-          if(isSwitching) return;
+          if (e.target.tagName === 'BUTTON') return;
+          if (isSwitching) return;
           isSwitching = true;
           activePl = id;
-          currentIdx = 0; pauseOffset = 0;
-          stopSource();
-          playing = false; playBtn.innerText = '▶';
-          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+          currentIdx = 0;
+          audio.pause();
+          audio.src = '';
+          playCurrent().finally(() => { isSwitching = false; });
           renderPlaylistsUI();
           renderTracksInSettings();
           renderSimpleTracksMenu();
-          let plData = playlists.get(activePl);
-          if(plData && plData.ids.length){
-            let first = tracks.find(t=>t.id === plData.ids[0]);
-            if(first){ buffer = first.buf; trackId = first.id; trackNameSpan.innerText = first.name; totalSpan.innerText = format(first.duration); pauseOffset=0; updateArtwork(); updateMediaSession();}
-            else { buffer=null; trackNameSpan.innerText='—'; totalSpan.innerText='0:00'; artworkDiv.style.backgroundImage='none'; artworkDiv.innerHTML='<span>🎵</span>';}
-          } else { buffer=null; trackNameSpan.innerText='—'; totalSpan.innerText='0:00'; artworkDiv.style.backgroundImage='none'; artworkDiv.innerHTML='<span>🎵</span>';}
-          updateAllTrackHighlights();
-          isSwitching = false;
         });
-        if(id !== 'default'){
+        if (id !== 'default') {
           let delBtn = div.querySelector('button');
           delBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             playlists.delete(id);
-            if(activePl === id) activePl = 'default';
+            if (activePl === id) activePl = 'default';
             renderPlaylistsUI();
             renderTracksInSettings();
             renderSimpleTracksMenu();
@@ -611,19 +685,19 @@
 
     function renderTracksInSettings() {
       let pl = playlists.get(activePl);
-      if(!pl) return;
+      if (!pl) return;
       trackDropdownList.innerHTML = '';
       pl.ids.forEach((tid, i) => {
         let t = tracks.find(tr => tr.id === tid);
-        if(!t) return;
+        if (!t) return;
         let row = document.createElement('div');
-        row.className = 'track-row' + (trackId === tid ? ' now' : '');
-        row.innerHTML = `<span>${t.name}</span><span>${format(t.duration)}</span>`;
+        row.className = 'track-row' + (currentTrackId === tid ? ' now' : '');
+        row.innerHTML = `<span>${t.name}</span><span>${t.duration ? format(t.duration) : '--:--'}</span>`;
         row.addEventListener('click', () => {
-          if(isSwitching) return;
+          if (isSwitching) return;
           isSwitching = true;
-          stopSource();
-          playing = false; pauseOffset = 0;
+          audio.pause();
+          audio.src = '';
           currentIdx = i;
           playCurrent().finally(() => { isSwitching = false; });
           settingsDropdown.classList.remove('show');
@@ -634,144 +708,136 @@
 
     function updateAllTrackHighlights() {
       let pl = playlists.get(activePl);
-      if(!pl) return;
+      if (!pl) return;
+      // Простое меню
       let rowsSimple = tracksDropdown.children;
-      for(let i=0; i<rowsSimple.length; i++){
+      for (let i = 0; i < rowsSimple.length; i++) {
         let tid = pl.ids[i];
-        if(tid === trackId) rowsSimple[i].classList.add('now');
+        if (tid === currentTrackId) rowsSimple[i].classList.add('now');
         else rowsSimple[i].classList.remove('now');
       }
+      // Меню настроек
       let rowsSettings = trackDropdownList.children;
-      for(let i=0; i<rowsSettings.length; i++){
+      for (let i = 0; i < rowsSettings.length; i++) {
         let tid = pl.ids[i];
-        if(tid === trackId) rowsSettings[i].classList.add('now');
+        if (tid === currentTrackId) rowsSettings[i].classList.add('now');
         else rowsSettings[i].classList.remove('now');
       }
     }
 
     // --- Загрузка треков и обложек ---
-    async function addTrackFromUrl(name, url, coverUrl = null, buf=null){
-      if(!buf){
-        if(!ctx) initAudio();
-        let r = await fetch(url);
-        if(!r.ok) throw new Error();
-        let ab = await r.arrayBuffer();
-        buf = await ctx.decodeAudioData(ab);
-      }
+    async function addTrackFromUrl(name, url, coverUrl = null) {
       let id = nextId++;
-      tracks.push({id, name, buf, duration: buf.duration, coverUrl});
+      // Проверяем длительность (можно загрузить метаданные)
+      let duration = 0;
+      try {
+        let testAudio = new Audio();
+        testAudio.src = url;
+        await new Promise((resolve) => {
+          testAudio.addEventListener('loadedmetadata', () => {
+            duration = testAudio.duration;
+            resolve();
+          });
+          testAudio.addEventListener('error', () => resolve());
+        });
+      } catch(e) {}
+      tracks.push({ id, name, url, coverUrl, duration });
       let pl = playlists.get(activePl);
-      if(pl) pl.ids.push(id);
+      if (pl) pl.ids.push(id);
       renderPlaylistsUI();
       renderTracksInSettings();
       renderSimpleTracksMenu();
-      if(!buffer && tracks.length){
-        let f = tracks[0];
-        buffer = f.buf; trackId = f.id; trackNameSpan.innerText = f.name; totalSpan.innerText = format(f.duration); pauseOffset=0; updateArtwork(); updateMediaSession();
+      if (!currentTrackId && tracks.length) {
+        currentIdx = 0;
+        playCurrent();
       }
-    }
-
-    async function loadMusicViaManifest(path='music/manifest.json'){
-      try{
-        let r = await fetch(path);
-        if(!r.ok) throw new Error();
-        let json = await r.json();
-        let files = json.tracks || [];
-        for(let f of files){
-          let url = f.startsWith('http') ? f : `music/${f}`;
-          let name = f.split('/').pop().replace(/\.[^/.]+$/,'');
-          let coverUrl = null;
-          if(json.covers && json.covers[f]) coverUrl = json.covers[f];
-          await addTrackFromUrl(name, url, coverUrl);
-        }
-      }catch(e){ console.log('manifest not loaded'); }
     }
 
     async function handleUserFiles(files) {
-      if(!ctx) initAudio();
       let audioFiles = files.filter(f => f.type.startsWith('audio/'));
       let imageFiles = files.filter(f => f.type.startsWith('image/'));
-      for(let i = 0; i < audioFiles.length; i++) {
-        let audioFile = audioFiles[i];
-        let ab = await audioFile.arrayBuffer();
-        let buf = await ctx.decodeAudioData(ab);
-        let name = audioFile.name.replace(/\.[^/.]+$/,'');
-        // ищем обложку с таким же именем (без расширения)
-        let coverBlob = null;
+      for (let audioFile of audioFiles) {
+        let url = URL.createObjectURL(audioFile);
+        let name = audioFile.name.replace(/\.[^/.]+$/, '');
+        let coverUrl = null;
         let baseName = audioFile.name.substring(0, audioFile.name.lastIndexOf('.'));
-        let matchingImage = imageFiles.find(img => img.name.startsWith(baseName) && (img.name.endsWith('.jpg') || img.name.endsWith('.jpeg') || img.name.endsWith('.png')));
-        if(matchingImage) {
-          coverBlob = URL.createObjectURL(matchingImage);
-          // удаляем этот image из списка, чтобы не использовать повторно
+        let matchingImage = imageFiles.find(img => img.name.startsWith(baseName) && /\.(jpg|jpeg|png)$/i.test(img.name));
+        if (matchingImage) {
+          coverUrl = URL.createObjectURL(matchingImage);
           imageFiles = imageFiles.filter(img => img !== matchingImage);
         }
-        let id = nextId++;
-        tracks.push({id, name, buf, duration: buf.duration, coverUrl: coverBlob});
-        let pl = playlists.get(activePl);
-        if(pl) pl.ids.push(id);
+        await addTrackFromUrl(name, url, coverUrl);
       }
-      renderPlaylistsUI(); renderTracksInSettings(); renderSimpleTracksMenu();
-      if(!buffer && tracks.length){ let ft = tracks[0]; buffer=ft.buf; trackId=ft.id; trackNameSpan.innerText=ft.name; totalSpan.innerText=format(ft.duration); pauseOffset=0; updateArtwork(); updateMediaSession(); }
-      updateAllTrackHighlights();
     }
 
-    async function generateManifest(){
-      if(!window.showDirectoryPicker){ alert('Браузер не поддерживает выбор папки'); return; }
-      try{
+    async function loadMusicViaManifest(path = 'music/manifest.json') {
+      try {
+        let r = await fetch(path);
+        if (!r.ok) throw new Error();
+        let json = await r.json();
+        let files = json.tracks || [];
+        for (let f of files) {
+          let url = f.startsWith('http') ? f : `music/${f}`;
+          let name = f.split('/').pop().replace(/\.[^/.]+$/, '');
+          let coverUrl = null;
+          if (json.covers && json.covers[f]) coverUrl = json.covers[f];
+          await addTrackFromUrl(name, url, coverUrl);
+        }
+      } catch(e) { console.log('manifest not loaded'); }
+    }
+
+    async function generateManifest() {
+      if (!window.showDirectoryPicker) { alert('Браузер не поддерживает выбор папки'); return; }
+      try {
         let dir = await window.showDirectoryPicker();
         let audioList = [];
-        async function scan(h, path=''){
-          for await(let e of h.values()){
-            if(e.kind === 'file' && /\.(mp3|wav|ogg|flac|m4a)$/i.test(e.name)) audioList.push(path ? `${path}/${e.name}` : e.name);
-            else if(e.kind === 'directory') await scan(e, path ? `${path}/${e.name}` : e.name);
+        async function scan(h, path = '') {
+          for await (let e of h.values()) {
+            if (e.kind === 'file' && /\.(mp3|wav|ogg|flac|m4a)$/i.test(e.name)) 
+              audioList.push(path ? `${path}/${e.name}` : e.name);
+            else if (e.kind === 'directory') 
+              await scan(e, path ? `${path}/${e.name}` : e.name);
           }
         }
         await scan(dir);
-        if(!audioList.length){ alert('Нет аудио'); return; }
+        if (!audioList.length) { alert('Нет аудио'); return; }
         let manifestContent = { tracks: audioList };
-        let blob = new Blob([JSON.stringify(manifestContent, null, 2)], {type:'application/json'});
-        let a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='manifest.json'; a.click(); URL.revokeObjectURL(blob);
+        let blob = new Blob([JSON.stringify(manifestContent, null, 2)], { type: 'application/json' });
+        let a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'manifest.json'; a.click(); URL.revokeObjectURL(blob);
         alert(`✅ manifest.json (${audioList.length} треков) сохранён`);
-      }catch(e){ alert('Ошибка: '+e.message); }
+      } catch(e) { alert('Ошибка: ' + e.message); }
     }
 
-    // --- Фоновое воспроизведение ---
+    // --- Фоновое воспроизведение (видимость) ---
     let wasPlayingBeforeHidden = false;
-    let savedPauseOffset = 0;
     function handleVisibilityChange() {
-      if(document.visibilityState === 'hidden') {
-        wasPlayingBeforeHidden = playing;
-        if(playing && ctx && ctx.state !== 'closed') {
-          if(source && startTime) savedPauseOffset = ctx.currentTime - startTime;
-          else savedPauseOffset = pauseOffset;
-        }
-      } else if(document.visibilityState === 'visible') {
-        if(wasPlayingBeforeHidden && ctx) {
-          if(ctx.state === 'suspended') {
-            ctx.resume().then(() => {
-              if(!playing && buffer && savedPauseOffset >= 0) {
-                pauseOffset = savedPauseOffset;
-                playCurrent();
-              }
-            }).catch(console.warn);
-          } else {
-            if(!playing && buffer && savedPauseOffset >= 0) {
-              pauseOffset = savedPauseOffset;
-              playCurrent();
-            }
-          }
+      if (document.visibilityState === 'hidden') {
+        wasPlayingBeforeHidden = isPlaying;
+      } else if (document.visibilityState === 'visible') {
+        if (wasPlayingBeforeHidden && !isPlaying) {
+          audio.play().catch(console.warn);
+          isPlaying = true;
+          playBtn.innerText = '⏸';
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
         }
         wasPlayingBeforeHidden = false;
-        savedPauseOffset = 0;
+        // "Пробуждение" AudioContext если он приостановлен
+        if (ctx && ctx.state === 'suspended') {
+          ctx.resume().catch(console.warn);
+        }
       }
     }
 
     // --- События ---
-    function bindEvents(){
+    function bindEvents() {
       playBtn.onclick = togglePlay;
       prevBtn.onclick = prevTrack;
       nextBtn.onclick = nextTrack;
-      progressBar.addEventListener('click', (e) => { let rect = progressBar.getBoundingClientRect(); let per = (e.clientX - rect.left)/rect.width; if(buffer) seek(per); });
+      progressBar.addEventListener('click', (e) => {
+        let rect = progressBar.getBoundingClientRect();
+        let per = (e.clientX - rect.left) / rect.width;
+        seekTo(per);
+      });
       volumeSlider.oninput = (e) => setVolume(parseFloat(e.target.value));
       
       tracksListBtn.onclick = (e) => {
@@ -786,8 +852,10 @@
         tracksDropdown.classList.remove('show');
       };
       document.addEventListener('click', (e) => {
-        if(!tracksListBtn.contains(e.target) && !tracksDropdown.contains(e.target)) tracksDropdown.classList.remove('show');
-        if(!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) settingsDropdown.classList.remove('show');
+        if (!tracksListBtn.contains(e.target) && !tracksDropdown.contains(e.target)) 
+          tracksDropdown.classList.remove('show');
+        if (!settingsBtn.contains(e.target) && !settingsDropdown.contains(e.target)) 
+          settingsDropdown.classList.remove('show');
       });
       
       bassSl.oninput = updateEq; midSl.oninput = updateEq; trebleSl.oninput = updateEq;
@@ -799,23 +867,30 @@
       window.addEventListener('dragover', e=>e.preventDefault());
       window.addEventListener('drop', async e=>{ e.preventDefault(); let fs = Array.from(e.dataTransfer.files); await handleUserFiles(fs); });
       document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      // Подключаем эквалайзер к аудио (после первого действия пользователя)
+      document.body.addEventListener('click', () => {
+        if (!eqEnabled && audio.src) {
+          connectEqToAudio();
+        }
+      }, { once: true });
     }
 
-    window.addEventListener('load', async()=>{
-      initAudio(); loadEq(); let sv = localStorage.getItem('vol_set'); if(sv){ volumeSlider.value = sv; setVolume(+sv); } else setVolume(volumeSlider.value);
+    window.addEventListener('load', async() => {
+      loadEq();
+      let sv = localStorage.getItem('vol_set'); 
+      if (sv) { volumeSlider.value = sv; setVolume(+sv); } 
+      else setVolume(volumeSlider.value);
       bindEvents();
+      bindAudioEvents();
       setupMediaSessionHandlers();
       await loadMusicViaManifest('music/manifest.json');
-      if(!tracks.length) await loadMusicViaManifest('manifest.json');
-      renderPlaylistsUI(); renderTracksInSettings(); renderSimpleTracksMenu();
-      if(tracks.length && !buffer){
-        let firstPl = playlists.get(activePl);
-        if(firstPl && firstPl.ids.length){
-          let firstTrack = tracks.find(t=>t.id===firstPl.ids[0]);
-          if(firstTrack){ buffer=firstTrack.buf; trackId=firstTrack.id; trackNameSpan.innerText=firstTrack.name; totalSpan.innerText=format(firstTrack.duration); updateArtwork(); updateMediaSession();}
-        }
-      }
-      startProgress();
+      if (!tracks.length) await loadMusicViaManifest('manifest.json');
+      renderPlaylistsUI(); 
+      renderTracksInSettings(); 
+      renderSimpleTracksMenu();
+      // Инициализируем эквалайзер (без подключения к audio)
+      initAudioContext();
     });
   })();
 </script>
