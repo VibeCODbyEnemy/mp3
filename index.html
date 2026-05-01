@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod · фикс кнопок на заблокированном экране</title>
+  <title>iPod · финал (кнопки переключения треков)</title>
   <style>
     * {
       margin: 0;
@@ -471,15 +471,16 @@
 
     function setupMediaSessionHandlers() {
       if (!('mediaSession' in navigator)) return;
-      // Основные действия
+      // Только основные действия управления
       navigator.mediaSession.setActionHandler('play', () => togglePlay());
       navigator.mediaSession.setActionHandler('pause', () => togglePlay());
       navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
       navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
       navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
-      // Жизненно важно: переопределяем перемотку пустыми функциями (не null!)
-      navigator.mediaSession.setActionHandler('seekforward', () => {});
-      navigator.mediaSession.setActionHandler('seekbackward', () => {});
+      // Ключевой момент: НЕ УСТАНАВЛИВАЕМ обработчики для seekforward/seekbackward,
+      // и явно убираем их, если они были установлены ранее
+      navigator.mediaSession.setActionHandler('seekforward', null);
+      navigator.mediaSession.setActionHandler('seekbackward', null);
     }
 
     let wasPlayingBeforeHidden = false;
