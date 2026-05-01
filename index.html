@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod · кастомный фон + обложка по умолчанию</title>
+  <title>iPod · корректные кнопки на экране блокировки</title>
   <style>
     * {
       margin: 0;
@@ -21,7 +21,6 @@
       font-family: system-ui, -apple-system, 'SF Pro Text', Helvetica, sans-serif;
     }
 
-    /* Фоновое изображение с размытием */
     body {
       position: relative;
       display: flex;
@@ -39,7 +38,6 @@
       background: #000;
     }
 
-    /* Псевдоэлемент для размытого фона */
     body::before {
       content: '';
       position: fixed;
@@ -56,7 +54,6 @@
       z-index: -2;
     }
 
-    /* Дополнительная тёмная полупрозрачная накладка для читаемости */
     body::after {
       content: '';
       position: fixed;
@@ -336,7 +333,6 @@
 
 <script>
   (function() {
-    // --- HTML5 Audio ---
     let audio = new Audio();
     let isPlaying = false;
     let tracks = [];
@@ -346,7 +342,6 @@
     let currentTrackId = null;
     let isSwitching = false;
 
-    // DOM
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
     const progressBar = document.getElementById('progressBar'), fill = document.getElementById('progressFill');
     const curTimeSpan = document.getElementById('currentTimeLabel'), totalSpan = document.getElementById('totalDurationLabel');
@@ -362,7 +357,6 @@
     const uploadBtn = document.getElementById('uploadMusicBtn'), fileInput = document.getElementById('fileInput');
     const genManifestBtn = document.getElementById('genManifestBtn');
 
-    // Константа: путь к стандартной обложке
     const DEFAULT_COVER = 'img/icon.png';
 
     function format(sec) {
@@ -376,7 +370,6 @@
       localStorage.setItem('vol_set', v);
     }
 
-    // Обновление отображения обложки (если нет своей – стандартная)
     function updateArtworkDisplay(coverUrl) {
       if (coverUrl) {
         artworkDiv.style.backgroundImage = `url('${coverUrl}')`;
@@ -406,7 +399,6 @@
       trackNameSpan.innerText = track.name;
       totalSpan.innerText = track.duration ? format(track.duration) : '0:00';
 
-      // Обновляем обложку: если у трека есть coverUrl – используем её, иначе стандартную
       updateArtworkDisplay(track.coverUrl);
       updateMediaSession(track);
 
@@ -463,7 +455,6 @@
 
     function updateMediaSession(track) {
       if (!('mediaSession' in navigator)) return;
-      // Используем для обложки: если есть своя – её, иначе стандартную
       const artworkUrl = track.coverUrl || DEFAULT_COVER;
       const artwork = [{ src: artworkUrl, sizes: '512x512', type: 'image/png' }];
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -476,14 +467,16 @@
 
     function setupMediaSessionHandlers() {
       if (!('mediaSession' in navigator)) return;
-      navigator.mediaSession.setActionHandler('play', () => togglePlay());
-      navigator.mediaSession.setActionHandler('pause', () => togglePlay());
-      navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
-      navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
-      navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
-      // Отключаем перемотку на 10 секунд
-      navigator.mediaSession.setActionHandler('seekforward', null);
-      navigator.mediaSession.setActionHandler('seekbackward', null);
+      try {
+        navigator.mediaSession.setActionHandler('play', () => togglePlay());
+        navigator.mediaSession.setActionHandler('pause', () => togglePlay());
+        navigator.mediaSession.setActionHandler('nexttrack', () => nextTrack());
+        navigator.mediaSession.setActionHandler('previoustrack', () => prevTrack());
+        navigator.mediaSession.setActionHandler('stop', () => pauseTrack());
+        // Отключаем кнопки перемотки на 10 секунд
+        navigator.mediaSession.setActionHandler('seekforward', () => {});
+        navigator.mediaSession.setActionHandler('seekbackward', () => {});
+      } catch(e) { console.warn(e); }
     }
 
     let wasPlayingBeforeHidden = false;
