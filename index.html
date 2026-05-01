@@ -3,23 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>iPod · плеер со списком треков отдельно</title>
+  <title>iPod · плеер с фоновым воспроизведением</title>
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      user-select: none;
+      user-select: none;          /* запрет выделения текста */
       -webkit-tap-highlight-color: transparent;
     }
 
-    body {
+    html, body {
+      height: 100%;
+      overflow: hidden;          /* запрет прокрутки страницы */
       background: radial-gradient(circle at 30% 20%, #121212, #000000);
-      min-height: 100vh;
+      font-family: system-ui, -apple-system, 'SF Pro Text', Helvetica, sans-serif;
+    }
+
+    body {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: system-ui, -apple-system, 'SF Pro Text', Helvetica, sans-serif;
       padding: 16px;
     }
 
@@ -34,7 +38,6 @@
       border: 1px solid rgba(255, 255, 255, 0.15);
     }
 
-    /* верхняя панель с двумя кнопками */
     .top-bar {
       display: flex;
       justify-content: space-between;
@@ -52,7 +55,6 @@
     }
     .icon-btn:active { background: rgba(255,255,255,0.1); }
 
-    /* обложка */
     .artwork {
       aspect-ratio: 1 / 1;
       width: 85%;
@@ -126,7 +128,6 @@
     .ctrl-btn:active { transform: scale(0.94); background: rgba(255, 255, 255, 0.2); }
     .play-btn { background: #fa6b6b; box-shadow: 0 8px 20px rgba(250, 107, 107, 0.3); }
 
-    /* общие стили для выпадающих меню */
     .dropdown {
       position: absolute;
       background: rgba(30, 32, 40, 0.98);
@@ -140,7 +141,6 @@
     }
     .dropdown.show { display: flex; }
 
-    /* меню списка треков — просто список */
     .tracks-dropdown {
       left: 10px;
       top: 60px;
@@ -161,7 +161,6 @@
     }
     .track-row.now { background: #fa6b6b80; }
 
-    /* меню настроек (шестерёнка) — широкое, с колонками */
     .settings-dropdown {
       right: 0;
       top: 60px;
@@ -273,17 +272,14 @@
     }
   </style>
 </head>
-<body>
+<body oncontextmenu="return false">
 <div class="player-card">
   <div class="top-bar">
     <button class="icon-btn" id="tracksListBtn">🎵</button>
     <button class="icon-btn" id="settingsBtn">⚙️</button>
   </div>
 
-  <!-- выпадающее меню со списком треков (простое) -->
   <div id="tracksDropdown" class="dropdown tracks-dropdown"></div>
-
-  <!-- выпадающее меню настроек (с плейлистами, эквалайзером и т.д.) -->
   <div id="settingsDropdown" class="dropdown settings-dropdown">
     <div class="playlist-track-panel">
       <div class="playlist-side">
@@ -347,6 +343,7 @@
     let activePl = 'default', currentIdx = 0;
     let bass, mid, treble, gain, analyser;
     let animFrame = null;
+    let isSwitching = false;   // флаг для предотвращения зацикливания onended
 
     // DOM
     const playBtn = document.getElementById('playPauseBtn'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn');
@@ -390,22 +387,43 @@
     function setVolume(v) { if(gain) gain.gain.value = v; localStorage.setItem('vol_set', v); }
     function applyPreset(p) { let m = { flat:{b:0,m:0,t:0}, rock:{b:5,m:-2,t:4}, pop:{b:3,m:1,t:3}, jazz:{b:4,m:2,t:1} }; let v = m[p] || m.flat; bassSl.value=v.b; midSl.value=v.m; trebleSl.value=v.t; updateEq(); }
 
+    // Остановка источника с очисткой обработчика
+    function stopSource() {
+      if(source) {
+        try {
+          source.onended = null;   // отключаем обработчик, чтобы не вызывал nextTrack
+          source.stop();
+        } catch(e) {}
+        source = null;
+      }
+    }
+
     async function playCurrent() {
       if(!ctx) initAudio();
       if(ctx.state === 'suspended') await ctx.resume();
+
       let pl = playlists.get(activePl);
       if(!pl || !pl.ids.length) return;
       let tr = tracks.find(t => t.id === pl.ids[currentIdx]);
       if(!tr || !tr.buf) return;
-      if(source) try{ source.stop(); } catch(e){}
-      buffer = tr.buf; trackId = tr.id;
+
+      stopSource(); // останавливаем старый источник без вызова onended
+
+      buffer = tr.buf;
+      trackId = tr.id;
       trackNameSpan.innerText = tr.name;
       totalSpan.innerText = format(buffer.duration);
       updateAllTrackHighlights();
+
       source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(bass);
-      source.onended = () => { if(playing) nextTrack(); };
+      // назначаем обработчик только один раз
+      source.onended = () => {
+        if(playing && !isSwitching) {
+          nextTrack();
+        }
+      };
       source.start(0, pauseOffset);
       startTime = ctx.currentTime - pauseOffset;
       playing = true;
@@ -413,14 +431,16 @@
       pauseOffset = 0;
       startProgress();
     }
+
     function pauseTrack() {
       if(!playing || !source) return;
       let elapsed = ctx.currentTime - startTime;
       pauseOffset = Math.max(0, elapsed);
-      source.stop(); source = null;
+      stopSource();  // остановка с очисткой обработчика
       playing = false;
       playBtn.innerText = '▶';
     }
+
     function togglePlay() {
       if(!ctx) initAudio();
       if(playing) pauseTrack();
@@ -431,26 +451,43 @@
         } else if(buffer) playCurrent();
       }
     }
-    function nextTrack() { change(1); }
-    function prevTrack() { change(-1); }
-    function change(d) {
+
+    function nextTrack() { changeTrack(1); }
+    function prevTrack() { changeTrack(-1); }
+
+    function changeTrack(d) {
       let pl = playlists.get(activePl);
       if(!pl || !pl.ids.length) return;
-      if(source) try{ source.stop(); } catch(e){}
-      playing = false; pauseOffset = 0;
+
+      isSwitching = true;  // блокируем onended во время переключения
+      stopSource();        // останавливаем старый трек без вызова nextTrack
+      playing = false;
+      pauseOffset = 0;
+
       let newIdx = currentIdx + d;
-      if(newIdx < 0) newIdx = pl.ids.length-1;
+      if(newIdx < 0) newIdx = pl.ids.length - 1;
       if(newIdx >= pl.ids.length) newIdx = 0;
       currentIdx = newIdx;
-      playCurrent();
+
+      // вызываем воспроизведение нового трека
+      playCurrent().finally(() => {
+        isSwitching = false;
+      });
     }
+
     function seek(percent) {
       if(!buffer) return;
       let newPos = buffer.duration * percent;
       let wasPlaying = playing;
-      if(playing && source) { pauseTrack(); pauseOffset = newPos; if(wasPlaying) playCurrent(); }
-      else pauseOffset = newPos;
+      if(playing && source) {
+        pauseTrack();
+        pauseOffset = newPos;
+        if(wasPlaying) playCurrent();
+      } else {
+        pauseOffset = newPos;
+      }
     }
+
     function startProgress() {
       if(animFrame) cancelAnimationFrame(animFrame);
       function update(){
@@ -466,8 +503,7 @@
       update();
     }
 
-    // --- Рендер для двух меню ---
-    // 1) Простое меню треков (слева)
+    // --- Рендер меню ---
     function renderSimpleTracksMenu() {
       let pl = playlists.get(activePl);
       if(!pl) { tracksDropdown.innerHTML = '<div style="padding:12px">Нет треков</div>'; return; }
@@ -479,16 +515,18 @@
         row.className = 'track-row' + (trackId === tid ? ' now' : '');
         row.innerHTML = `<span>${t.name}</span><span>${format(t.duration)}</span>`;
         row.addEventListener('click', () => {
-          if(source) try{ source.stop(); }catch(e){}
+          if(isSwitching) return;
+          isSwitching = true;
+          stopSource();
           playing = false; pauseOffset = 0;
           currentIdx = i;
-          playCurrent();
+          playCurrent().finally(() => { isSwitching = false; });
           tracksDropdown.classList.remove('show');
         });
         tracksDropdown.appendChild(row);
       });
     }
-    // 2) Меню настроек: плейлисты и треки внутри
+
     function renderPlaylistsUI() {
       playlistListDiv.innerHTML = '';
       for(let [id, pl] of playlists){
@@ -499,11 +537,11 @@
           if(e.target.tagName === 'BUTTON') return;
           activePl = id;
           currentIdx = 0; pauseOffset = 0;
-          if(source) try{ source.stop(); }catch(e){}
+          stopSource();
           playing = false; playBtn.innerText = '▶';
           renderPlaylistsUI();
           renderTracksInSettings();
-          renderSimpleTracksMenu();   // обновить простое меню
+          renderSimpleTracksMenu();
           let plData = playlists.get(activePl);
           if(plData && plData.ids.length){
             let first = tracks.find(t=>t.id === plData.ids[0]);
@@ -537,34 +575,33 @@
         row.className = 'track-row' + (trackId === tid ? ' now' : '');
         row.innerHTML = `<span>${t.name}</span><span>${format(t.duration)}</span>`;
         row.addEventListener('click', () => {
-          if(source) try{ source.stop(); }catch(e){}
+          if(isSwitching) return;
+          isSwitching = true;
+          stopSource();
           playing = false; pauseOffset = 0;
           currentIdx = i;
-          playCurrent();
+          playCurrent().finally(() => { isSwitching = false; });
           settingsDropdown.classList.remove('show');
         });
         trackDropdownList.appendChild(row);
       });
     }
     function updateAllTrackHighlights() {
-      // обновить простое меню треков
-      let rowsSimple = tracksDropdown.children;
       let pl = playlists.get(activePl);
-      if(pl && rowsSimple) {
-        for(let i=0; i<rowsSimple.length; i++){
-          let tid = pl.ids[i];
-          if(tid === trackId) rowsSimple[i].classList.add('now');
-          else rowsSimple[i].classList.remove('now');
-        }
+      if(!pl) return;
+      // простое меню
+      let rowsSimple = tracksDropdown.children;
+      for(let i=0; i<rowsSimple.length; i++){
+        let tid = pl.ids[i];
+        if(tid === trackId) rowsSimple[i].classList.add('now');
+        else rowsSimple[i].classList.remove('now');
       }
-      // обновить треки в меню настроек
+      // меню настроек
       let rowsSettings = trackDropdownList.children;
-      if(pl && rowsSettings) {
-        for(let i=0; i<rowsSettings.length; i++){
-          let tid = pl.ids[i];
-          if(tid === trackId) rowsSettings[i].classList.add('now');
-          else rowsSettings[i].classList.remove('now');
-        }
+      for(let i=0; i<rowsSettings.length; i++){
+        let tid = pl.ids[i];
+        if(tid === trackId) rowsSettings[i].classList.add('now');
+        else rowsSettings[i].classList.remove('now');
       }
     }
 
@@ -638,7 +675,14 @@
       }catch(e){ alert('Ошибка: '+e.message); }
     }
 
-    // --- События и закрытие меню ---
+    // --- Фоновая работа ---
+    function handleVisibilityChange() {
+      if(document.visibilityState === 'visible' && ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(console.warn);
+      }
+    }
+
+    // --- События ---
     function bindEvents(){
       playBtn.onclick = togglePlay;
       prevBtn.onclick = prevTrack;
@@ -670,6 +714,7 @@
       genManifestBtn.onclick = generateManifest;
       window.addEventListener('dragover', e=>e.preventDefault());
       window.addEventListener('drop', async e=>{ e.preventDefault(); let fs = Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('audio/')); if(fs.length) await handleUserFiles(fs); });
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     window.addEventListener('load', async()=>{
